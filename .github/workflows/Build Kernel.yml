@@ -5,7 +5,7 @@ on:
       phone:
         description: '选择手机型号：'
         required: true
-        default: 'MI10'
+        default: 'MI10_Pro'
         type: choice
         options:
           - MI10_Pro
@@ -49,7 +49,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           git clone https://github.com/yspbwx2010/kernel_xiaomi_sm8250_mod.git --depth=1 android_kernel
-          git clone https://github.com/zzh20188/AUTO_BUILD.git src
+          git https://github.com/nobbs00/AnyKernel3.git src
 
       - name: 3.安装KSUN
         run: |
@@ -270,13 +270,13 @@ jobs:
           strings $KERNEL_IMAGE | grep "Linux version"
           
           # 复制到Anykernel目录
-          ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/Anykernel"
+          ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/"
           mkdir -p $ANY_KERNEL_DIR
           cp $KERNEL_IMAGE $ANY_KERNEL_DIR/
 
       - name: 8.上传刷入包
         uses: actions/upload-artifact@v4
         with:
-          name: KernelSU_NEXT_SUSFS_${{ inputs.phone }}
-          path: kernel_workspace/src/Anykernel/*
+          name: NO_${{ inputs.phone }}
+          path: kernel_workspace/src/*
           retention-days: 3
