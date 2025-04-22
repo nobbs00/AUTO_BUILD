@@ -88,7 +88,7 @@ jobs:
 
           # 生成配置
           echo "🔧 生成 $DEFCONFIG 配置..."
-          make $MAKE_ARGS $DEFCONFIG
+          make ARCH=arm64 $MAKE_ARGS $DEFCONFIG
 
           # 应用优化配置
           echo "🔧 应用内核优化配置..."
@@ -242,7 +242,8 @@ jobs:
                   
           # 编译内核
           echo "🚀 开始编译内核..."
-          make $MAKE_ARGS -j$(nproc --all) \
+          make ARCH=arm64 \
+            $MAKE_ARGS -j$(nproc --all) \
             CC=clang \
             LD=ld.lld \
             AR=llvm-ar \
