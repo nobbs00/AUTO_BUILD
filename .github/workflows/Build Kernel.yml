@@ -252,6 +252,7 @@ jobs:
             OBJDUMP=llvm-objdump \
             STRIP=llvm-strip \
             CROSS_COMPILE=aarch64-linux-gnu- \
+            CFLAGS =-Wall -Wno-unused-variable \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 
       - name: 7.处理编译产物
