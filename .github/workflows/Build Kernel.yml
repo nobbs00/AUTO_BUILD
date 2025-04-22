@@ -49,7 +49,7 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
           git clone https://github.com/yspbwx2010/kernel_xiaomi_sm8250_mod.git --depth=1 android_kernel
-          git https://github.com/nobbs00/AnyKernel3.git src
+          git clone https://github.com/nobbs00/AnyKernel3.git src
 
       - name: 3.安装KSUN
         run: |
