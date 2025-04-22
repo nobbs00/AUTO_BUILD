@@ -16,23 +16,9 @@ on:
 jobs:
   build_job:
     runs-on: ubuntu-22.04
-    env:
-      CI: "false"
-    steps:
-
-      - name: Maximize build space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 8192
-          temp-reserve-mb: 2048
-          swap-size-mb: 4096
-          remove-dotnet: 'true'
-          remove-android: 'true'
-          remove-haskell: 'true'
-          remove-codeql: 'true'
 
       - name: 安装编译依赖
-        run: sudo apt-get install -y libssl-dev ncurses-dev xmlto kmod flex bison
+        run: sudo apt-get install -y libssl-dev ncurses-dev xmlto kmod flex bison ccache
 
       - name: 1.下载编译工具
         run: |
