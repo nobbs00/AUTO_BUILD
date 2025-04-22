@@ -10,7 +10,7 @@ on:
         options:
           - MI10_Pro
       version:
-        description: '自定义版本名（如perf-xxx）/可为空（则为n0kernel）'
+        description: '自定义版本名（如perf-xxx）/可为空（则为perf）'
         required: false
         type: string
 jobs:
@@ -69,11 +69,11 @@ jobs:
           if [ -n "${{ inputs.version }}" ]; then
             echo "设置自定义版本: ${{ inputs.version }}"
             sed -i 's/ -dirty//g' ./scripts/setlocalversion
-            sed -i '$s|echo "$res"|echo "-n0kernel-${{ inputs.version }}"|' ./scripts/setlocalversion
+            sed -i '$s|echo "$res"|echo "-perf-${{ inputs.version }}"|' ./scripts/setlocalversion
           else
             echo "使用默认版本"
             sed -i 's/ -dirty//g' ./scripts/setlocalversion
-            sed -i '$s|echo "$res"|echo "-n0kernel"|' ./scripts/setlocalversion
+            sed -i '$s|echo "$res"|echo "-perf"|' ./scripts/setlocalversion
           fi
 
           # 设备配置处理
