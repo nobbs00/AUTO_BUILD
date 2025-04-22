@@ -243,17 +243,18 @@ jobs:
           # 编译内核
           echo "🚀 开始编译内核..."
           make ARCH=arm64 \
-            $MAKE_ARGS -j$(nproc --all) \
-            CC=clang \
-            LD=ld.lld \
-            AR=llvm-ar \
-            NM=llvm-nm \
-            OBJCOPY=llvm-objcopy \
-            OBJDUMP=llvm-objdump \
-            STRIP=llvm-strip \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CFLAGS =-Wall -Wno-unused-variable \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          -j$(nproc --all) \
+          $MAKE_ARGS \
+          CC=clang \
+          LD=ld.lld \
+          AR=llvm-ar \
+          NM=llvm-nm \
+          OBJCOPY=llvm-objcopy \
+          OBJDUMP=llvm-objdump \
+          STRIP=llvm-strip \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          CFLAGS=-Wall -Wno-unused-variable
 
       - name: 7.处理编译产物
         run: |
