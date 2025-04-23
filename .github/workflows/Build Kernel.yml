@@ -280,7 +280,7 @@ jobs:
             -e HAVE_ARCH_PREL32_RELOCATIONS
 
           # 执行编译
-          make -j$(($(nproc) * 2)) \
+          make -j$(($(nproc) * 1.5)) \
             ARCH=${ARCH} \
             SUBARCH=${SUBARCH} \
             $MAKE_ARGS \
