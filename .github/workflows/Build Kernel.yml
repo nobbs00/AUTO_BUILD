@@ -1,4 +1,4 @@
-name: Build SM8250 MI Kernel
+name: Optimized Build for Xiaomi 10 Pro (cmi)
 on:
   workflow_dispatch:
     inputs:
@@ -19,6 +19,10 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       CI: "false"
+      KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
+      CLANG_VERSION: "21.0.0git-20250422"
+      ARCH: arm64
+      SUBARCH: arm64
 
     steps:
       - name: Maximize build space
@@ -33,17 +37,23 @@ jobs:
           remove-codeql: 'true'
 
       - name: 安装编译依赖
-        run: sudo apt-get install -y libssl-dev ncurses-dev xmlto kmod flex bison ccache
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libssl-dev ncurses-dev xmlto kmod flex bison ccache \
+            zlib1g-dev libelf-dev libdw-dev libiberty-dev \
+            python3-dev libcap-dev bc rsync lz4 liblz4-tool \
+            dwarves libncurses5-dev libpci-dev
 
       - name: 1.下载编译工具
         run: |
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           cd $GITHUB_WORKSPACE/kernel_workspace
-          DATE=${1:-20250422}
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/21.0.0git-${DATE}-release/Clang-21.0.0git-${DATE}.tar.gz
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/${env:CLANG_VERSION}-release/Clang-${env:CLANG_VERSION}.tar.gz
           mkdir -p clang
-          tar -xzf Clang-21.0.0git-${DATE}.tar.gz -C clang
-      
+          tar --use-compress-program=pigz -xf Clang-${env:CLANG_VERSION}.tar.gz -C clang
+          ccache --max-size=5G
+
       - name: 2.克隆源码与补丁
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
@@ -52,33 +62,49 @@ jobs:
 
       - name: 3.安装KSUN
         run: |
-          cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs || exit 1
-        
+          cd ${env:KERNEL_DIR}
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+
       - name: 6.开始构建
         run: |
-          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang/bin:$PATH
+          export PATH=${env:KERNEL_DIR}/../clang/bin:$PATH
           export MAKE_ARGS="O=out"
-          echo "Updated PATH: $PATH"
-          clang --version
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
-          cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel
+          # Clang 21优化参数
+          export KCFLAGS="\
+            -march=armv8.2-a+crypto+dotprod \
+            -mcpu=cortex-a77 \
+            -flto=thin \
+            -fno-strict-aliasing \
+            -fno-common \
+            -pipe \
+            -Wno-error=unused-function \
+            -Wno-error=maybe-uninitialized \
+            -Wno-error=unused-variable \
+            -Wno-error=unused-value \
+            -Wno-error=date-time"
+
+          export LDFLAGS="\
+            -plugin ${env:KERNEL_DIR}/../clang/lib/LLVMgold.so \
+            -Wl,-mllvm,-import-instr-limit=30"
+
+          cd ${env:KERNEL_DIR}
           
-          # 自定义版本处理
+          # 版本处理
           if [ -n "${{ inputs.version }}" ]; then
-            echo "设置自定义版本: ${{ inputs.version }}"
             sed -i 's/ -dirty//g' ./scripts/setlocalversion
             sed -i '$s|echo "$res"|echo "-perf-${{ inputs.version }}"|' ./scripts/setlocalversion
           else
-            echo "使用默认版本"
             sed -i 's/ -dirty//g' ./scripts/setlocalversion
             sed -i '$s|echo "$res"|echo "-perf"|' ./scripts/setlocalversion
           fi
 
-          # 设备配置处理
+          # 设备配置
           case "${{ inputs.phone }}" in
               "MI10_Pro")
-                  DEVICE="cmi"
                   DEFCONFIG="cmi_defconfig"
                   ;;
               *)
@@ -88,95 +114,45 @@ jobs:
           esac
 
           # 生成配置
-          echo "🔧 生成 $DEFCONFIG 配置..."
-          make ARCH=arm64 $MAKE_ARGS $DEFCONFIG
+          make ARCH=${env:ARCH} $MAKE_ARGS $DEFCONFIG
 
-          # 应用优化配置
-          echo "🔧 应用内核优化配置..."
+          # 硬件特性优化配置
           scripts/config --file out/.config \
-            -e KALLSYMS \
-            -e KALLSYMS_ALL \
-            -e KPROBES \
-            -e HAVE_KPROBES \
-            -e KPROBE_EVENTS \
-            -e TMPFS_XATTR=y \
-            -e TMPFS_POSIX_ACL \
-            -e IP_NF_TARGET_TTL \
-            -e IP6_NF_TARGET_HL \
-            -e IP6_NF_MATCH_HL \
-            -e UCLAMP_TASK \
-            -e TCP_CONG_ADVANCED \
-            -e TCP_CONG_BIC \
-            -e TCP_CONG_CUBIC \
+            # CPU调度优化
+            -e SCHED_WALT \
+            -e WALT_FORCE_SYNC \
+            -e CAPACITY_RESERVE \
+            -e ENERGY_AWARE_SCHEDULING \
+            -e CPU_FREQ_GOV_SCHEDUTIL \
+            -e CPU_FREQ_GOV_PERFORMANCE \
+            -e UCLAMP_TASK_GROUP \
+            # 内存管理优化
+            -e MEMORY_HOTPLUG \
+            -e COMPACTION \
+            -e KSM \
+            -e TRANSPARENT_HUGEPAGE \
+            -e ZSWAP_COMPACTION \
+            # 网络优化
+            -e FAST_UDP \
             -e TCP_CONG_WESTWOOD \
-            -e TCP_CONG_HTCP \
-            -e TCP_CONG_HSTCP \
-            -e TCP_CONG_HYBLA \
-            -e TCP_CONG_VEGAS \
-            -e TCP_CONG_NV \
-            -e TCP_CONG_SCALABLE \
-            -e TCP_CONG_LP \
-            -e TCP_CONG_VENO \
-            -e TCP_CONG_YEAH \
-            -e TCP_CONG_ILLINOIS \
-            -e TCP_CONG_DCTCP \
-            -e TCP_CONG_CDG \
-            -e TCP_CONG_BBR \
-            -e DEFAULT_BBR \
-            -e NET_SCHED \
-            -e NET_SCH_HTB \
-            -e NET_SCH_HFSC \
-            -e NET_SCH_PRIO \
-            -e NET_SCH_MULTIQ \
-            -e NET_SCH_RED \
-            -e NET_SCH_SFB \
-            -e NET_SCH_SFQ \
-            -e NET_SCH_TEQL \
-            -e NET_SCH_TBF \
-            -e NET_SCH_CBS \
-            -e NET_SCH_ETF \
-            -e NET_SCH_TAPRIO \
-            -e NET_SCH_GRED \
-            -e NET_SCH_NETEM \
-            -e NET_SCH_DRR \
-            -e NET_SCH_MQPRIO \
-            -e NET_SCH_SKBPRIO \
-            -e NET_SCH_CHOKE \
-            -e NET_SCH_QFQ \
-            -e NET_SCH_CODEL \
-            -e NET_SCH_FQ_CODEL \
-            -e NET_SCH_CAKE \
-            -e NET_SCH_FQ \
-            -e NET_SCH_HHF \
-            -e NET_SCH_PIE \
-            -e NET_SCH_FQ_PIE \
-            -e NET_SCH_INGRESS \
-            -e NET_SCH_PLUG \
-            -e NET_SCH_ETS \
-            -e NET_SCH_FIFO \
-            -e NET_SCH_DEFAULT \
-            -e DEFAULT_FQ \
-            -e MQ_IOSCHED_DEADLINE \
-            -e MQ_IOSCHED_KYBER \
-            -e IOSCHED_BFQ \
-            -e BFQ_GROUP_IOSCHED \
-            -e ENERGY_MODEL \
-            -e CPU_IDLE \
-            -e CPU_IDLE_GOV_MENU \
-            -e CPU_IDLE_GOV_TEO \
-            -e ARM_PSCI_CPUIDLE \
-            -e CPU_FREQ \
-            -e CPU_FREQ_STAT \
-            -e CPU_FREQ_TIMES \
-            -e CPU_FREQ_GOV_POWERSAVE \
-            -e CPU_FREQ_GOV_CONSERVATIVE \
-            -e CPU_FREQ_GOV_USERSPACE \
-            -e CPU_FREQ_GOV_ONDEMAND \
-            -e ZRAM \
-            -e ZSMALLOC \
-            -e ZRAM_WRITEBACK \
-            -e CRYPTO_LZ4 \
-            -e CRYPTO_LZ4HC \
+            -e DEFAULT_WESTWOOD \
+            # GPU驱动优化
+            -e KGSL_PER_PROCESS_PAGE_TABLE \
+            -e KGSL_IOCOHERENT_DEFAULT \
+            -e MSM_KGSL_USE_IOCOHERENT \
+            # 文件系统优化
+            -e F2FS_FS \
+            -e F2FS_FS_SECURITY \
+            -e F2FS_FS_ENCRYPTION \
+            -e F2FS_STAT_FS \
+            # 硬件加速
+            -e CRYPTO_SHA2_ARM64_CE \
+            -e CRYPTO_AES_ARM64 \
+            -e CRYPTO_GHASH_ARM64_CE \
+            # 调试优化
+            -d DEBUG_SECTION_MISMATCH \
+            -d DEBUG_OBJECTS \
+            -d RUNTIME_TESTING_MENU
             -e CRYPTO_LZ4K \
             -e CRYPTO_LZ4KD \
             -e CRYPTO_ZSTD \
@@ -205,7 +181,7 @@ jobs:
                   -e KPERFEVENTS \
                   -e MILLET \
                   -e PERF_HUMANTASK \
-                  -d LTO_CLANG \
+                  -e LTO_CLANG \
                   -d LOCALVERSION_AUTO \
                   -e SF_BINDER \
                   -e XIAOMI_MIUI \
@@ -241,44 +217,58 @@ jobs:
                   -e KSU_SUSFS_OPEN_REDIRECT \
                   -d KSU_SUSFS_SUS_SU
                   
-          # 编译内核
-          echo "🚀 开始编译内核..."
-          make ARCH=arm64 \
-          -j$(nproc --all) \
-          $MAKE_ARGS \
-          CC=clang \
-          LD=ld.lld \
-          AR=llvm-ar \
-          NM=llvm-nm \
-          OBJCOPY=llvm-objcopy \
-          OBJDUMP=llvm-objdump \
-          STRIP=llvm-strip \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          KCFLAGS=-Wno-error
+
+          # 编译参数优化
+          scripts/config --file out/.config \
+            --set-str CONFIG_CC_VERSION_TEXT "Clang 21.0.0git" \
+            --set-str CONFIG_LD_VERSION "LLD 17.0.0" \
+            -e LTO_CLANG_THIN \
+            -e THIN_ARCHIVES \
+            -e HAVE_ARCH_PREL32_RELOCATIONS
+
+          # 执行编译
+          time make -j$(($(nproc) * 2)) \
+            ARCH=${env:ARCH} \
+            $MAKE_ARGS \
+            CC="clang" \
+            LD="ld.lld" \
+            AR="llvm-ar" \
+            NM="llvm-nm" \
+            STRIP="llvm-strip" \
+            OBJCOPY="llvm-objcopy" \
+            OBJDUMP="llvm-objdump" \
+            READELF="llvm-readelf" \
+            HOSTCC="clang" \
+            HOSTCXX="clang++" \
+            HOSTAR="llvm-ar" \
+            HOSTLD="ld.lld" \
+            LLVM=1 \
+            LLVM_IAS=1 \
+            KCFLAGS="${KCFLAGS}" \
+            LDFLAGS="${LDFLAGS}"
 
       - name: 7.处理编译产物
         run: |
-          # 修正产物路径
-          KERNEL_IMAGE="$GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot/Image"
+          KERNEL_IMAGE="${env:KERNEL_DIR}/out/arch/${env:ARCH}/boot/Image"
+          [ ! -f "$KERNEL_IMAGE" ] && { echo "错误：内核镜像未找到！"; exit 1; }
           
-          if [ ! -f "$KERNEL_IMAGE" ]; then
-            echo "错误：内核镜像未找到！"
-            exit 1
-          fi
-          
-          echo "✅ 编译产物:"
-          ls -lh $KERNEL_IMAGE
-          strings $KERNEL_IMAGE | grep "Linux version"
-          
-          # 复制到Anykernel目录
-          ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/"
-          mkdir -p $ANY_KERNEL_DIR
-          cp $KERNEL_IMAGE $ANY_KERNEL_DIR/
+          # 生成版本信息
+          strings "$KERNEL_IMAGE" | grep "Linux version" > version_info.txt
+          ${env:KERNEL_DIR}/../clang/bin/llvm-readelf -a "$KERNEL_IMAGE" > kernel_symbols.txt
 
-      - name: 8.上传刷入包
+          # 打包刷机包
+          ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/"
+          cp "$KERNEL_IMAGE" "$ANY_KERNEL_DIR/Image"
+          cp version_info.txt kernel_symbols.txt "$ANY_KERNEL_DIR/"
+          
+          cd "$ANY_KERNEL_DIR"
+          zip -r9 "MI10Pro-Kernel-${{ inputs.version || 'perf' }}.zip" ./*
+
+      - name: 8.上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: NO_${{ inputs.phone }}
-          path: kernel_workspace/src/*
-          retention-days: 3
+          name: MI10Pro_${{ inputs.version || 'perf' }}_$(date +%Y%m%d%H%M)
+          path: |
+            kernel_workspace/src/*.zip
+            kernel_workspace/src/version_info.txt
+          retention-days: 7
