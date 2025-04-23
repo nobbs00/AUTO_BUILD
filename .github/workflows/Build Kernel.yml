@@ -211,7 +211,7 @@ jobs:
                   -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                   -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                   -e KSU_SUSFS_OPEN_REDIRECT \
-                  -d KSU_SUSFS_SUS_SU
+                  -e KSU_SUSFS_SUS_SU
                   
 
           # 编译参数优化
