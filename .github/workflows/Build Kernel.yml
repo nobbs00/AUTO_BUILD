@@ -84,10 +84,7 @@ jobs:
             -fno-strict-aliasing \
             -fno-common \
             -pipe \
-            -Wno-error=unused-function \
-            -Wno-error=unused-variable \
-            -Wno-error=unused-value \
-            -Wno-error=date-time"
+            -Wno-error"
 
           export LDFLAGS="\
             -plugin ${KERNEL_DIR}/../clang/lib/LLVMgold.so \
