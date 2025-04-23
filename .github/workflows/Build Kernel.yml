@@ -128,7 +128,6 @@ jobs:
             -e CPU_FREQ_GOV_SCHEDUTIL \
             -e CPU_FREQ_GOV_PERFORMANCE \
             -e UCLAMP_TASK_GROUP \
-            # 内存管理优化
             -e MEMORY_HOTPLUG \
             -e COMPACTION \
             -e KSM \
@@ -166,7 +165,7 @@ jobs:
           echo "🔧 应用MIUI优化配置..."
           scripts/config --file out/.config \
             --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
-                   -e PERF_CRITICAL_RT_TASK \
+                  -e PERF_CRITICAL_RT_TASK \
                   -e SF_BINDER \
                   -e OVERLAY_FS \
                   -d DEBUG_FS \
