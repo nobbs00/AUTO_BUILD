@@ -230,7 +230,7 @@ jobs:
             -e HAVE_ARCH_PREL32_RELOCATIONS
 
           # 执行编译
-          time make -j$(($(nproc) * 2)) \
+          make -j$(($(nproc) * 2)) \
             ARCH=${ARCH} \
             $MAKE_ARGS \
             CC="clang" \
