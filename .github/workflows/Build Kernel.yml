@@ -293,26 +293,16 @@ jobs:
             KCFLAGS="${KCFLAGS}" \
             LDFLAGS="${LDFLAGS}"
 
-      - name: 7.处理编译产物
+      - name: 7.查看成果
         run: |
-          # 使用vmlinux提取符号信息
-          KERNEL_ELF="${KERNEL_DIR}/out/vmlinux"
-          [ ! -f "$KERNEL_ELF" ] && { echo "错误：ELF文件未找到！"; exit 1; }
-          
-          # 生成版本信息（从Image提取）
-          strings "${KERNEL_DIR}/out/arch/${ARCH}/boot/Image" | grep "Linux version" > version_info.txt
-          ${KERNEL_DIR}/../clang/bin/llvm-readelf -a "$KERNEL_ELF" > kernel_symbols.txt
+            cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot
+            ls
+            strings Image | grep "Linux version"
+            cp Image $GITHUB_WORKSPACE/kernel_workspace/src/
 
-          # 打包刷机包（保留原Image）
-          ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/"
-          cp "${KERNEL_DIR}/out/arch/${ARCH}/boot/Image" "$ANY_KERNEL_DIR/Image"
-          cp version_info.txt kernel_symbols.txt "$ANY_KERNEL_DIR/"
-
-      - name: 8.上传产物
+      - name: 8.上传刷入包
         uses: actions/upload-artifact@v4
         with:
-          name: Mi10Pro_${{ inputs.version || 'perf' }}_$(date +%Y%m%d%H%M)
-          path: |
-            kernel_workspace/src/*.zip
-            kernel_workspace/src/version_info.txt
-          retention-days: 7
+          name: cmi_${{ github.event.inputs.phone}}
+          path: kernel_workspace/src/*
+          retention-days: 3
