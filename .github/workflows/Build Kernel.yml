@@ -39,9 +39,9 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           cd $GITHUB_WORKSPACE/kernel_workspace
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240125-release/Clang-19.0.0git-20240125.tar.gz
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/21.0.0git-20250422-release/Clang-21.0.0git-20250422.tar.gz
           mkdir -p clang
-          tar -xzf Clang-19.0.0git-20240125.tar.gz -C clang
+          tar -xzf Clang-21.0.0git-20250422.tar.gz -C clang
 
       - name: 2.克隆源码与补丁
         run: |
@@ -254,7 +254,7 @@ jobs:
           STRIP=llvm-strip \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          CFLAGS=-Wall -Wextra -Werror=return-type -Werror=format-security -Wno-unused-variable
+          KCFLAGS=-Wno-error
 
       - name: 7.处理编译产物
         run: |
