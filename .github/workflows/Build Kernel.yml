@@ -62,12 +62,12 @@ jobs:
 
       - name: 3.安装KSUN
         run: |
-          cd ${env:KERNEL_DIR}
+          cd ${KERNEL_DIR}
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 
       - name: 6.开始构建
         run: |
-          export PATH=${env:KERNEL_DIR}/../clang/bin:$PATH
+          export PATH=${KERNEL_DIR}/../clang/bin:$PATH
           export MAKE_ARGS="O=out"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
@@ -91,7 +91,7 @@ jobs:
             -plugin ${env:KERNEL_DIR}/../clang/lib/LLVMgold.so \
             -Wl,-mllvm,-import-instr-limit=30"
 
-          cd ${env:KERNEL_DIR}
+          cd ${KERNEL_DIR}
           
           # 版本处理
           if [ -n "${{ inputs.version }}" ]; then
@@ -114,7 +114,7 @@ jobs:
           esac
 
           # 生成配置
-          make ARCH=${env:ARCH} $MAKE_ARGS $DEFCONFIG
+          make ARCH=${ARCH} $MAKE_ARGS $DEFCONFIG
 
           # 硬件特性优化配置
           scripts/config --file out/.config \
@@ -228,7 +228,7 @@ jobs:
 
           # 执行编译
           time make -j$(($(nproc) * 2)) \
-            ARCH=${env:ARCH} \
+            ARCH=${ARCH} \
             $MAKE_ARGS \
             CC="clang" \
             LD="ld.lld" \
@@ -249,12 +249,12 @@ jobs:
 
       - name: 7.处理编译产物
         run: |
-          KERNEL_IMAGE="${env:KERNEL_DIR}/out/arch/${env:ARCH}/boot/Image"
+          KERNEL_IMAGE="${KERNEL_DIR}/out/arch/${ARCH}/boot/Image"
           [ ! -f "$KERNEL_IMAGE" ] && { echo "错误：内核镜像未找到！"; exit 1; }
           
           # 生成版本信息
           strings "$KERNEL_IMAGE" | grep "Linux version" > version_info.txt
-          ${env:KERNEL_DIR}/../clang/bin/llvm-readelf -a "$KERNEL_IMAGE" > kernel_symbols.txt
+          ${KERNEL_DIR}/../clang/bin/llvm-readelf -a "$KERNEL_IMAGE" > kernel_symbols.txt
 
           # 打包刷机包
           ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/"
