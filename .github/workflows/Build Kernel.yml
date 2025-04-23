@@ -43,7 +43,10 @@ jobs:
             libssl-dev ncurses-dev xmlto kmod flex bison ccache \
             zlib1g-dev libelf-dev libdw-dev libiberty-dev \
             python3-dev libcap-dev bc rsync lz4 liblz4-tool \
-            dwarves libncurses5-dev libpci-dev pigz
+            dwarves libncurses5-dev libpci-dev pigz gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            binutils-aarch64-linux-gnu \
+            binutils-arm-linux-gnueabi
 
       - name: 1.下载编译工具
         run: |
