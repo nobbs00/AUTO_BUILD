@@ -148,7 +148,7 @@ jobs:
             -e CRYPTO_GHASH_ARM64_CE \
             -d DEBUG_SECTION_MISMATCH \
             -d DEBUG_OBJECTS \
-            -d RUNTIME_TESTING_MENU
+            -d RUNTIME_TESTING_MENU \
             -e CRYPTO_LZ4K \
             -e CRYPTO_LZ4KD \
             -e CRYPTO_ZSTD \
