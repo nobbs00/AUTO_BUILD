@@ -84,11 +84,10 @@ jobs:
             -fno-strict-aliasing \
             -fno-common \
             -pipe \
-            -Wno-error"
+            -Wno-error -mllvm -import-instr-limit=30"
 
           export LDFLAGS="\
-            -plugin ${KERNEL_DIR}/../clang/lib/LLVMgold.so \
-            -Wl,-mllvm,-import-instr-limit=30"
+            -plugin ${KERNEL_DIR}/../clang/lib/LLVMgold.so"
 
           cd ${KERNEL_DIR}
           
