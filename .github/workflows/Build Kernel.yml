@@ -43,15 +43,15 @@ jobs:
             libssl-dev ncurses-dev xmlto kmod flex bison ccache \
             zlib1g-dev libelf-dev libdw-dev libiberty-dev \
             python3-dev libcap-dev bc rsync lz4 liblz4-tool \
-            dwarves libncurses5-dev libpci-dev
+            dwarves libncurses5-dev libpci-dev pigz
 
       - name: 1.下载编译工具
         run: |
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           cd $GITHUB_WORKSPACE/kernel_workspace
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/${env:CLANG_VERSION}-release/Clang-${env:CLANG_VERSION}.tar.gz
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/${CLANG_VERSION}-release/Clang-${CLANG_VERSION}.tar.gz
           mkdir -p clang
-          tar --use-compress-program=pigz -xf Clang-${env:CLANG_VERSION}.tar.gz -C clang
+          tar --use-compress-program=pigz -xf Clang-${CLANG_VERSION}.tar.gz -C clang
           ccache --max-size=5G
 
       - name: 2.克隆源码与补丁
