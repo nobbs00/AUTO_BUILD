@@ -112,7 +112,7 @@ jobs:
           esac
 
           # 生成配置
-          make ARCH=${ARCH} $MAKE_ARGS $DEFCONFIG
+          make ARCH=${ARCH} SUBARCH=${SUBARCH} $MAKE_ARGS $DEFCONFIG
 
           # 硬件特性优化配置
           scripts/config --file out/.config \
@@ -282,6 +282,7 @@ jobs:
           # 执行编译
           make -j$(($(nproc) * 2)) \
             ARCH=${ARCH} \
+            SUBARCH=${SUBARCH} \
             $MAKE_ARGS \
             CC="clang" \
             LD="ld.lld" \
