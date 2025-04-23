@@ -91,7 +91,7 @@ jobs:
             -Wno-error=date-time"
 
           export LDFLAGS="\
-            -plugin ${env:KERNEL_DIR}/../clang/lib/LLVMgold.so \
+            -plugin ${KERNEL_DIR}/../clang/lib/LLVMgold.so \
             -Wl,-mllvm,-import-instr-limit=30"
 
           cd ${KERNEL_DIR}
@@ -121,7 +121,6 @@ jobs:
 
           # 硬件特性优化配置
           scripts/config --file out/.config \
-            # CPU调度优化
             -e SCHED_WALT \
             -e WALT_FORCE_SYNC \
             -e CAPACITY_RESERVE \
@@ -135,24 +134,19 @@ jobs:
             -e KSM \
             -e TRANSPARENT_HUGEPAGE \
             -e ZSWAP_COMPACTION \
-            # 网络优化
             -e FAST_UDP \
             -e TCP_CONG_WESTWOOD \
             -e DEFAULT_WESTWOOD \
-            # GPU驱动优化
             -e KGSL_PER_PROCESS_PAGE_TABLE \
             -e KGSL_IOCOHERENT_DEFAULT \
             -e MSM_KGSL_USE_IOCOHERENT \
-            # 文件系统优化
             -e F2FS_FS \
             -e F2FS_FS_SECURITY \
             -e F2FS_FS_ENCRYPTION \
             -e F2FS_STAT_FS \
-            # 硬件加速
             -e CRYPTO_SHA2_ARM64_CE \
             -e CRYPTO_AES_ARM64 \
             -e CRYPTO_GHASH_ARM64_CE \
-            # 调试优化
             -d DEBUG_SECTION_MISMATCH \
             -d DEBUG_OBJECTS \
             -d RUNTIME_TESTING_MENU
@@ -265,12 +259,12 @@ jobs:
           cp version_info.txt kernel_symbols.txt "$ANY_KERNEL_DIR/"
           
           cd "$ANY_KERNEL_DIR"
-          zip -r9 "MI10Pro-Kernel-${{ inputs.version || 'perf' }}.zip" ./*
+          zip -r9 "Mi10Pro-Kernel-${{ inputs.version || 'perf' }}.zip" ./*
 
       - name: 8.上传产物
         uses: actions/upload-artifact@v4
         with:
-          name: MI10Pro_${{ inputs.version || 'perf' }}_$(date +%Y%m%d%H%M)
+          name: Mi10Pro_${{ inputs.version || 'perf' }}_$(date +%Y%m%d%H%M)
           path: |
             kernel_workspace/src/*.zip
             kernel_workspace/src/version_info.txt
