@@ -295,20 +295,18 @@ jobs:
 
       - name: 7.处理编译产物
         run: |
-          KERNEL_IMAGE="${KERNEL_DIR}/out/arch/${ARCH}/boot/Image"
-          [ ! -f "$KERNEL_IMAGE" ] && { echo "错误：内核镜像未找到！"; exit 1; }
+          # 使用vmlinux提取符号信息
+          KERNEL_ELF="${KERNEL_DIR}/out/vmlinux"
+          [ ! -f "$KERNEL_ELF" ] && { echo "错误：ELF文件未找到！"; exit 1; }
           
-          # 生成版本信息
-          strings "$KERNEL_IMAGE" | grep "Linux version" > version_info.txt
-          ${KERNEL_DIR}/../clang/bin/llvm-readelf -a "$KERNEL_IMAGE" > kernel_symbols.txt
+          # 生成版本信息（从Image提取）
+          strings "${KERNEL_DIR}/out/arch/${ARCH}/boot/Image" | grep "Linux version" > version_info.txt
+          ${KERNEL_DIR}/../clang/bin/llvm-readelf -a "$KERNEL_ELF" > kernel_symbols.txt
 
-          # 打包刷机包
+          # 打包刷机包（保留原Image）
           ANY_KERNEL_DIR="$GITHUB_WORKSPACE/kernel_workspace/src/"
-          cp "$KERNEL_IMAGE" "$ANY_KERNEL_DIR/Image"
+          cp "${KERNEL_DIR}/out/arch/${ARCH}/boot/Image" "$ANY_KERNEL_DIR/Image"
           cp version_info.txt kernel_symbols.txt "$ANY_KERNEL_DIR/"
-          
-          cd "$ANY_KERNEL_DIR"
-          zip -r9 "Mi10Pro-Kernel-${{ inputs.version || 'perf' }}.zip" ./*
 
       - name: 8.上传产物
         uses: actions/upload-artifact@v4
