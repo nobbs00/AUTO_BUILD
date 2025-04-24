@@ -244,7 +244,7 @@ jobs:
                   -e MILLET \
                   -e PERF_HUMANTASK \
                   -e LTO_CLANG \
-                  -d LOCALVERSION_AUTO \
+                  -e LOCALVERSION_AUTO \
                   -e SF_BINDER \
                   -e XIAOMI_MIUI \
                   -d MI_MEMORY_SYSFS \
