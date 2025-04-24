@@ -39,9 +39,9 @@ jobs:
 
       - name: ⚙️ 配置 ccache
         run: |
+          sudo apt install ccache
           mkdir -p "${{ github.workspace }}/ccache"
           ccache --version
-          
           ccache --max-size=10G
           ccache --set-config=compression=true
           ccache --set-config=compression_type=zstd
