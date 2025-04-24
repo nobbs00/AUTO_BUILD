@@ -21,7 +21,7 @@ jobs:
       CI: "false"
       KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
       CLANG_VERSION: "21.0.0git-20250422"
-	  BUILD_VERSION: ${{ github.event.inputs.version || '-perf' }}
+      BUILD_VERSION: ${{ github.event.inputs.version || '-perf' }}
       ARCH: arm64
       SUBARCH: arm64
 
