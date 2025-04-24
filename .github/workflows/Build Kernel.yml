@@ -104,8 +104,6 @@ jobs:
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
-          # Clang 21优化参数
           export KCFLAGS="\
             -march=armv8.2-a+crypto+dotprod \
             -mcpu=cortex-a77 \
