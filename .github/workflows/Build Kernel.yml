@@ -10,7 +10,7 @@ on:
         options:
           - MI10_Pro
       version:
-        description: '自定义版本名（如perf-xxx）/可为空（则为perf）'
+        description: '自定义版本名（如perf-xxx）/可为空（则为-perf）'
         required: false
         type: string
 
@@ -21,6 +21,7 @@ jobs:
       CI: "false"
       KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
       CLANG_VERSION: "21.0.0git-20250422"
+	  BUILD_VERSION: ${{ github.event.inputs.version || '-perf' }}
       ARCH: arm64
       SUBARCH: arm64
 
@@ -35,6 +36,35 @@ jobs:
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
+
+      - name: ⚙️ 配置 ccache
+        run: |
+          mkdir -p "${{ github.workspace }}/ccache"
+          ccache --version
+          
+          ccache --max-size=10G
+          ccache --set-config=compression=true
+          ccache --set-config=compression_type=zstd
+          ccache --set-config=compression_level=3
+          
+          ccache --set-config=sloppiness=file_macro,locale,time_macros
+          ccache --set-config=hash_dir=false
+          ccache --set-config=max_files=0
+          
+          echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
+          echo "CCACHE_BASEDIR=${{ env.KERNEL_DIR }}" >> $GITHUB_ENV
+          echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
+          echo "$(dirname $(which ccache))" >> $GITHUB_PATH
+          ccache --zero-stats
+
+      - name: 📥 恢复 ccache 缓存
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/ccache
+          key: ccache-${{ github.event.inputs.phone }}-clang-${{ hashFiles('android_kernel/**/arch/arm64/configs/*_defconfig', '**/KernelSU-Next/**','**/scripts/setlocalversion', '**/Makefile') }}
+          restore-keys: |
+            ccache-${{ github.event.inputs.phone }}-
+            ccache-
 
       - name: 安装编译依赖
         run: |
@@ -55,7 +85,6 @@ jobs:
           wget -q https://github.com/ZyCromerZ/Clang/releases/download/${CLANG_VERSION}-release/Clang-${CLANG_VERSION}.tar.gz
           mkdir -p clang
           tar --use-compress-program=pigz -xf Clang-${CLANG_VERSION}.tar.gz -C clang
-          ccache --max-size=5G
 
       - name: 2.克隆源码与补丁
         run: |
@@ -68,7 +97,7 @@ jobs:
           cd ${KERNEL_DIR}
           curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
 
-      - name: 6.开始构建
+      - name: 4.开始构建
         run: |
           export PATH=${KERNEL_DIR}/../clang/bin:$PATH
           export MAKE_ARGS="O=out"
@@ -91,17 +120,9 @@ jobs:
 
           cd ${KERNEL_DIR}
           
-          # 版本处理
-          if [ -n "${{ inputs.version }}" ]; then
-            sed -i 's/ -dirty//g' ./scripts/setlocalversion
-            sed -i '$s|echo "$res"|echo "-perf-${{ inputs.version }}"|' ./scripts/setlocalversion
-          else
-            sed -i 's/ -dirty//g' ./scripts/setlocalversion
-            sed -i '$s|echo "$res"|echo "-perf"|' ./scripts/setlocalversion
-          fi
 
           # 设备配置
-          case "${{ inputs.phone }}" in
+          case "${{ github.event.inputs.phone }}" in
               "MI10_Pro")
                   DEFCONFIG="cmi_defconfig"
                   ;;
@@ -196,10 +217,7 @@ jobs:
             -e CPU_FREQ_GOV_ONDEMAND \
             -e ZRAM \
             -e ZSMALLOC \
-            -e ZRAM \
-            -e ZSMALLOC \
             -e ZRAM_WRITEBACK \
-            -e CRYPTO_LZ4 \
             -e CRYPTO_LZ4HC \
             -e CRYPTO_LZ4K \
             -e CRYPTO_LZ4KD \
@@ -227,7 +245,7 @@ jobs:
                   -e PERF_CRITICAL_RT_TASK \
                   -e SF_BINDER \
                   -e OVERLAY_FS \
-                  -d DEBUG_FS \
+                  -e DEBUG_FS \
                   -e MIGT \
                   -e MIGT_ENERGY_MODEL \
                   -e MIHW \
@@ -258,8 +276,8 @@ jobs:
                   -e KSU_SUSFS \
                   -e KSU_SUSFS_HAS_MAGIC_MOUNT \
                   -e KSU_SUSFS_SUS_PATH \
-                  -e KSU_SUSFS_SUS_MOUNT \
-                  -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+                  -d KSU_SUSFS_SUS_MOUNT \
+                  -d KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
                   -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
                   -e KSU_SUSFS_SUS_KSTAT \
                   -d KSU_SUSFS_SUS_OVERLAYFS \
@@ -270,11 +288,12 @@ jobs:
                   -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                   -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                   -e KSU_SUSFS_OPEN_REDIRECT \
-                  -e KSU_SUSFS_SUS_SU
+                  -d KSU_SUSFS_SUS_SU
                   
 
           # 编译参数优化
           scripts/config --file out/.config \
+		    --set-str CONFIG_LOCALVERSION "-perf-${BUILD_VERSION}" \
             --set-str CONFIG_CC_VERSION_TEXT "Clang 21.0.0git" \
             --set-str CONFIG_LD_VERSION "LLD 17.0.0" \
             -e LTO_CLANG_THIN \
@@ -282,11 +301,12 @@ jobs:
             -e HAVE_ARCH_PREL32_RELOCATIONS
 
           # 执行编译
-          make -j$(($(nproc) * 2)) \
+          make -j$(nproc) \
             ARCH=${ARCH} \
             SUBARCH=${SUBARCH} \
             $MAKE_ARGS \
-            CC="clang" \
+			LTO=thin \
+            CC="ccache clang" \
             LD="ld.lld" \
             AR="llvm-ar" \
             NM="llvm-nm" \
@@ -294,8 +314,8 @@ jobs:
             OBJCOPY="llvm-objcopy" \
             OBJDUMP="llvm-objdump" \
             READELF="llvm-readelf" \
-            HOSTCC="clang" \
-            HOSTCXX="clang++" \
+            HOSTCC="ccache clang" \
+            HOSTCXX="ccache clang++" \
             HOSTAR="llvm-ar" \
             HOSTLD="ld.lld" \
             LLVM=1 \
@@ -303,14 +323,14 @@ jobs:
             KCFLAGS="${KCFLAGS}" \
             LDFLAGS="${LDFLAGS}"
 
-      - name: 7.查看成果
+      - name: 5.查看成果
         run: |
             cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot
             ls
             strings Image | grep "Linux version"
             cp Image $GITHUB_WORKSPACE/kernel_workspace/src/
 
-      - name: 8.上传刷入包
+      - name: 6.上传刷入包
         uses: actions/upload-artifact@v4
         with:
           name: cmi_${{ github.event.inputs.phone}}
