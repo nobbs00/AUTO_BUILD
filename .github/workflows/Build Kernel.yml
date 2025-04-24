@@ -43,10 +43,6 @@ jobs:
           mkdir -p "${{ github.workspace }}/ccache"
           ccache --version
           ccache --max-size=10G
-          ccache --set-config=compression=true
-          ccache --set-config=compression_type=zstd
-          ccache --set-config=compression_level=3
-          
           ccache --set-config=sloppiness=file_macro,locale,time_macros
           ccache --set-config=hash_dir=false
           ccache --set-config=max_files=0
