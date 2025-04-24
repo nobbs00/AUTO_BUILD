@@ -291,9 +291,9 @@ jobs:
 
           # 编译参数优化
           scripts/config --file out/.config \
-		    --set-str CONFIG_LOCALVERSION "-perf-${BUILD_VERSION}" \
+            --set-str CONFIG_LOCALVERSION    "-perf-${BUILD_VERSION}" \
             --set-str CONFIG_CC_VERSION_TEXT "Clang 21.0.0git" \
-            --set-str CONFIG_LD_VERSION "LLD 17.0.0" \
+            --set-str CONFIG_LD_VERSION      "LLD 17.0.0" \
             -e LTO_CLANG_THIN \
             -e THIN_ARCHIVES \
             -e HAVE_ARCH_PREL32_RELOCATIONS
@@ -302,8 +302,8 @@ jobs:
           make -j$(nproc) \
             ARCH=${ARCH} \
             SUBARCH=${SUBARCH} \
-            $MAKE_ARGS \
-			LTO=thin \
+            ${MAKE_ARGS} \
+            LTO=thin \
             CC="ccache clang" \
             LD="ld.lld" \
             AR="llvm-ar" \
