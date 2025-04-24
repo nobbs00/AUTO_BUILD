@@ -9,10 +9,6 @@ on:
         type: choice
         options:
           - MI10_Pro
-      version:
-        description: '自定义版本名（如perf-xxx）/可为空（则为-perf）'
-        required: false
-        type: string
 
 jobs:
   build_job:
@@ -21,7 +17,6 @@ jobs:
       CI: "false"
       KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
       CLANG_VERSION: "21.0.0git-20250423"
-      BUILD_VERSION: ${{ github.event.inputs.version || '-perf' }}
       ARCH: arm64
       SUBARCH: arm64
 
@@ -287,7 +282,6 @@ jobs:
 
           # 编译参数优化
           scripts/config --file out/.config \
-            --set-str CONFIG_LOCALVERSION    "-perf-${BUILD_VERSION}" \
             --set-str CONFIG_CC_VERSION_TEXT "Clang 21.0.0git" \
             --set-str CONFIG_LD_VERSION      "LLD 17.0.0" \
             -e LTO_CLANG_THIN \
