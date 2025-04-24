@@ -270,11 +270,11 @@ jobs:
                   -e KSU_SUSFS \
                   -e KSU_SUSFS_HAS_MAGIC_MOUNT \
                   -e KSU_SUSFS_SUS_PATH \
-                  -d KSU_SUSFS_SUS_MOUNT \
-                  -d KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+                  -e KSU_SUSFS_SUS_MOUNT \
+                  -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
                   -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
                   -e KSU_SUSFS_SUS_KSTAT \
-                  -d KSU_SUSFS_SUS_OVERLAYFS \
+                  -e KSU_SUSFS_SUS_OVERLAYFS \
                   -e KSU_SUSFS_TRY_UMOUNT \
                   -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
                   -e KSU_SUSFS_SPOOF_UNAME \
@@ -282,7 +282,7 @@ jobs:
                   -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                   -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                   -e KSU_SUSFS_OPEN_REDIRECT \
-                  -d KSU_SUSFS_SUS_SU
+                  -e KSU_SUSFS_SUS_SU
                   
 
           # 编译参数优化
