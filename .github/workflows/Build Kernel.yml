@@ -80,7 +80,7 @@ jobs:
       - name: 2.克隆源码与补丁
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          git clone https://github.com/NikoRurQwQRuaaMeow/nikokernel_xiaomi_sm8250_mod_new.git --depth=1 android_kernel
+          git clone https://github.com/nobbs00/xiaomi_sm8250_mod_new.git --depth=1 android_kernel
           git clone https://github.com/nobbs00/AnyKernel3.git src
 
       - name: 3.安装sukisu-kernel
@@ -98,7 +98,6 @@ jobs:
           export KCFLAGS="\
             -march=armv8.2-a+crypto+dotprod \
             -mcpu=cortex-a77 \
-            -flto=thin \
             -fno-strict-aliasing \
             -fno-common \
             -pipe \
