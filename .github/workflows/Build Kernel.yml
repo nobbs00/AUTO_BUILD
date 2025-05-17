@@ -279,34 +279,8 @@ jobs:
                   -d KSU_SUSFS_SUS_SU
                   
 
-          # 编译参数优化
-          scripts/config --file out/.config \
-            --set-str CONFIG_CC_VERSION_TEXT "Clang 21.0.0git" \
-            --set-str CONFIG_LD_VERSION      "LLD 17.0.0" \
-            -e HAVE_ARCH_PREL32_RELOCATIONS
 
-          # 执行编译
-          make -j$(nproc) \
-            ARCH=${ARCH} \
-            SUBARCH=${SUBARCH} \
-            ${MAKE_ARGS} \
-            CC="ccache clang" \
-            LD="ld.lld" \
-            AR="llvm-ar" \
-            NM="llvm-nm" \
-            STRIP="llvm-strip" \
-            OBJCOPY="llvm-objcopy" \
-            OBJDUMP="llvm-objdump" \
-            READELF="llvm-readelf" \
-            HOSTCC="ccache clang" \
-            HOSTCXX="ccache clang++" \
-            HOSTAR="llvm-ar" \
-            HOSTLD="ld.lld" \
-            LLVM=1 \
-            LLVM_IAS=1 \
-            KCFLAGS="${KCFLAGS}" \
-            LDFLAGS="${LDFLAGS}"
-
+                    sh release.sh
       - name: 5.查看成果
         run: |
             cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot
