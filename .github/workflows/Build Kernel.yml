@@ -80,13 +80,13 @@ jobs:
       - name: 2.克隆源码与补丁
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          git clone https://github.com/yspbwx2010/kernel_xiaomi_sm8250_mod.git --depth=1 android_kernel
+          git clone https://github.com/NikoRurQwQRuaaMeow/nikokernel_xiaomi_sm8250_mod_new.git --depth=1 android_kernel
           git clone https://github.com/nobbs00/AnyKernel3.git src
 
-      - name: 3.安装KSUN
+      - name: 3.安装sukisu-kernel
         run: |
           cd ${KERNEL_DIR}
-          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/susfs-dev/kernel/setup.sh" | bash -s susfs-dev
 
       - name: 4.开始构建
         run: |
@@ -243,7 +243,7 @@ jobs:
                   -e KPERFEVENTS \
                   -e MILLET \
                   -e PERF_HUMANTASK \
-                  -e LTO_CLANG \
+                  -d LTO_CLANG \
                   -e LOCALVERSION_AUTO \
                   -e SF_BINDER \
                   -e XIAOMI_MIUI \
@@ -264,28 +264,26 @@ jobs:
                   -e KSU_MANUAL_HOOK \
                   -e KSU_SUSFS \
                   -e KSU_SUSFS_HAS_MAGIC_MOUNT \
-                  -e KSU_SUSFS_SUS_PATH \
+                  -d KSU_SUSFS_SUS_PATH \
                   -e KSU_SUSFS_SUS_MOUNT \
                   -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
                   -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
                   -e KSU_SUSFS_SUS_KSTAT \
-                  -e KSU_SUSFS_SUS_OVERLAYFS \
+                  -d KSU_SUSFS_SUS_OVERLAYFS \
                   -e KSU_SUSFS_TRY_UMOUNT \
                   -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
                   -e KSU_SUSFS_SPOOF_UNAME \
                   -e KSU_SUSFS_ENABLE_LOG \
                   -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
                   -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-                  -e KSU_SUSFS_OPEN_REDIRECT \
-                  -e KSU_SUSFS_SUS_SU
+                  -d KSU_SUSFS_OPEN_REDIRECT \
+                  -d KSU_SUSFS_SUS_SU
                   
 
           # 编译参数优化
           scripts/config --file out/.config \
             --set-str CONFIG_CC_VERSION_TEXT "Clang 21.0.0git" \
             --set-str CONFIG_LD_VERSION      "LLD 17.0.0" \
-            -e LTO_CLANG_THIN \
-            -e THIN_ARCHIVES \
             -e HAVE_ARCH_PREL32_RELOCATIONS
 
           # 执行编译
@@ -293,7 +291,6 @@ jobs:
             ARCH=${ARCH} \
             SUBARCH=${SUBARCH} \
             ${MAKE_ARGS} \
-            LTO=thin \
             CC="ccache clang" \
             LD="ld.lld" \
             AR="llvm-ar" \
