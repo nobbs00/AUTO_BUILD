@@ -21,33 +21,7 @@ jobs:
       SUBARCH: arm64
 
     steps:
-
-
-      - name: ⚙️ 配置 ccache
-        run: |
-          sudo apt install ccache
-          mkdir -p "${{ github.workspace }}/ccache"
-          ccache --version
-          ccache --max-size=10G
-          ccache --set-config=sloppiness=file_macro,locale,time_macros
-          ccache --set-config=hash_dir=false
-          ccache --set-config=max_files=0
-          
-          echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
-          echo "CCACHE_BASEDIR=${{ env.KERNEL_DIR }}" >> $GITHUB_ENV
-          echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
-          echo "$(dirname $(which ccache))" >> $GITHUB_PATH
-          ccache --zero-stats
-
-      - name: 📥 恢复 ccache 缓存
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/ccache
-          key: ccache-${{ github.event.inputs.phone }}-clang-${{ hashFiles('android_kernel/**/arch/arm64/configs/*_defconfig', '**/KernelSU-Next/**','**/scripts/setlocalversion', '**/Makefile') }}
-          restore-keys: |
-            ccache-${{ github.event.inputs.phone }}-
-            ccache-
-
+    
       - name: 安装编译依赖
         run: |
           sudo apt-get update
