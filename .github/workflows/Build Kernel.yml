@@ -16,7 +16,7 @@ jobs:
     env:
       CI: "false"
       KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
-      CLANG_VERSION: "21.0.0git-20250423"
+      CLANG_VERSION: "21.0.0git-20250523"
       ARCH: arm64
       SUBARCH: arm64
 
@@ -268,7 +268,6 @@ jobs:
                   -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
                   -d KSU_SUSFS_OPEN_REDIRECT \
                   -d KSU_SUSFS_SUS_SU
-                  
 
 
                     sh release.sh
