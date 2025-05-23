@@ -57,10 +57,6 @@ jobs:
         run: |
           export PATH=${KERNEL_DIR}/../clang/bin:$PATH
           MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1 \
-            CROSS_COMPILE=$TOOLCHAIN_DIR/gcc/gcc64/bin/aarch64-linux-android- \
-            CROSS_COMPILE_COMPAT=$TOOLCHAIN_DIR/gcc/gcc32/bin/arm-linux-androideabi- \
-            CROSS_COMPILE_ARM32=$TOOLCHAIN_DIR/gcc/gcc32/bin/arm-linux-androideabi- \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
             LD=ld.lld HOSTLD=ld.lld \
             KCFLAGS=-Wno-error \
             O=out"
