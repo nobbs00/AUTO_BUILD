@@ -56,7 +56,14 @@ jobs:
       - name: 4.开始构建
         run: |
           export PATH=${KERNEL_DIR}/../clang/bin:$PATH
-          export MAKE_ARGS="O=out"
+          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=$TOOLCHAIN_DIR/gcc/gcc64/bin/aarch64-linux-android- \
+            CROSS_COMPILE_COMPAT=$TOOLCHAIN_DIR/gcc/gcc32/bin/arm-linux-androideabi- \
+            CROSS_COMPILE_ARM32=$TOOLCHAIN_DIR/gcc/gcc32/bin/arm-linux-androideabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            LD=ld.lld HOSTLD=ld.lld \
+            KCFLAGS=-Wno-error \
+            O=out"
           export CLANG_TRIPLE=aarch64-linux-gnu-
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
@@ -224,6 +231,7 @@ jobs:
 
           # 追加KernelSU配置到当前配置
               scripts/config --file out/.config \
+                  -e KPM \
                   -e KSU \
                   -e KSU_MANUAL_HOOK \
                   -e KSU_SUSFS \
@@ -243,8 +251,43 @@ jobs:
                   -d KSU_SUSFS_OPEN_REDIRECT \
                   -d KSU_SUSFS_SUS_SU
 
+            
+          # 开始构建
+          echo "🚀 Start building the kernel... (开始构建内核)"
+          make $MAKE_ARGS -j$(nproc --all) 2>&1 | tee build.log
+            
+          # 验证构建结果
+          if [ -f "$KERNEL_SOURCE/out/arch/arm64/boot/Image" ]; then
+              echo "✅ Kernel Build Successful (内核构建成功)"
+          else
+              echo "❌ Kernel build failure (内核构建失败)"
+              echo "error log (错误日志):"
+              tail -n 100 build.log
+              exit 1
+          fi
 
-                    sh release.sh
+      - name: 🛠️ KPM Patching Image Files (KPM 修补 Image 文件)
+        run: |
+          KSU_VARIANT="${{ github.event.inputs.kernelsu_variant }}"
+          KPM_ENABLE="${{ github.event.inputs.kpm_enable }}"
+          
+          if [ "$KSU_VARIANT" == "SukiSU-Ultra" ] && [ "$KPM_ENABLE" == "enable" ]; then
+            echo "🛠️ 正在修补 Image 文件..."
+            cd "$KERNEL_SOURCE/out/arch/arm64/boot"
+            curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU_patch/refs/heads/main/kpm/patch_linux" -o patch
+            chmod 777 patch
+            ./patch
+            if [ $? -eq 0 ]; then
+              rm -f Image
+              mv oImage Image
+              echo "✅ Image file repair complete (Image 文件修补完成)"
+            else
+              echo "❌ KPM Patch Failed, Use Original Image (KPM 修补失败，使用原始 Image)"
+            fi
+          else 
+            echo "ℹ️ KPM is not enabled or KernelSU variants do not support KPM. (KPM 未启用或 KernelSU 变体不支持 KPM)"
+          fi
+
       - name: 5.查看成果
         run: |
             cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot
