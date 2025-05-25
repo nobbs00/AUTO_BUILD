@@ -16,7 +16,7 @@ jobs:
     env:
       CI: "false"
       KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
-      CLANG_VERSION: "21.0.0git-20250423"
+      CLANG_VERSION: "21.0.0git-20250525"
       ARCH: arm64
       SUBARCH: arm64
 
@@ -71,7 +71,7 @@ jobs:
       - name: 2.克隆源码与补丁
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          git clone https://github.com/nobbs00/nikokernel_xiaomi_sm8250_mod_new.git --depth=1 android_kernel
+          git clone https://github.com/yspbwx2010/kernel_xiaomi_sm8250_mod.git --depth=1 android_kernel
           git clone https://github.com/nobbs00/AnyKernel3.git src
 
       - name: 3.安装sukisu-kernel
@@ -269,9 +269,10 @@ jobs:
                   -d KSU_SUSFS_OPEN_REDIRECT \
                   -d KSU_SUSFS_SUS_SU
                   
-
-
-                    sh release.sh
+          # 开始构建
+          echo "🚀 Start building the kernel... (开始构建内核)"
+          make $MAKE_ARGS -j$(nproc --all) 2>&1 | tee build.log
+          
       - name: 5.查看成果
         run: |
             cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot
