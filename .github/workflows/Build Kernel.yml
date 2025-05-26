@@ -47,9 +47,9 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           cd $GITHUB_WORKSPACE/kernel_workspace
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240125-release/Clang-19.0.0git-20240125.tar.gz
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/12.0.1-20230207-release/Clang-12.0.1-20230207.tar.gz
           mkdir -p clang
-          tar -xzf Clang-19.0.0git-20240125.tar.gz -C clang
+          tar -xzf Clang-12.0.1-20230207.tar.gz -C clang
 
       - name: 2.克隆源码与补丁
         run: |
