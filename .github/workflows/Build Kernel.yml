@@ -109,6 +109,8 @@ jobs:
           echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=d" >> ./arch/arm64/configs/$DEFCONFIG
 
           sed -i '2s/check_defconfig//' ./build.config.gki
+          make clean
+          make mrproper
 
           make -j$(nproc --all) CC=clang O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-buildroot-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-androideabi- $DEFCONFIG
           make -j$(nproc --all) CC=clang O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-    
