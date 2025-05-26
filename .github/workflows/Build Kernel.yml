@@ -10,29 +10,25 @@ on:
         description: 'target device (目标设备)'
         required: true
         type: choice
-        options:
-          - 'cmi'
+
       compiled_system:
         description: 'Applicable systems (适用系统)'
         required: true
         type: choice
         default: 'MIUI'
-        options:
-          - 'MIUI'
+
       kernelsu_variant:
         description: 'KernelSU variants (KernelSU 版本)'
         required: true
         type: choice
         default: 'SukiSU-Ultra'
-        options:
-          - 'SukiSU-Ultra'
+
       kpm_enable:
         description: 'Is KPM support enabled? (是否启用 KPM 支持?)'
         required: true
         type: choice
         default: 'enable'
-        options:
-          - 'enable'
+
       kernel_version:
         description: 'Customizing the kernel version number (自定义内核版本号)'
         required: false
@@ -43,8 +39,6 @@ on:
         required: true
         type: choice
         default: 'Release'
-        options:
-          - 'Release'
 
 jobs:
   prepare:
@@ -56,7 +50,7 @@ jobs:
         run: |
           DEVICES="${{ github.event.inputs.target_devices }}"
           if [ "$DEVICES" == "all" ]; then
-            DEVICES="umi,cmi,cas,thyme,munch,dagu,elish,enuma,alioth,apollo,lmi,psyche,pipa"
+            DEVICES="cmi"
           fi
           DEVICES_JSON="[$(echo $DEVICES | sed 's/,/","/g' | sed 's/.*/"&"/')]"
           echo "matrix={\"device\":$DEVICES_JSON}" >> $GITHUB_OUTPUT
