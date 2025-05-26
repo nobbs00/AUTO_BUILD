@@ -1,288 +1,175 @@
-name: Optimized Build for Xiaomi 10 Pro (cmi)
+name: Build SM8250 MI Kernel
 on:
   workflow_dispatch:
     inputs:
       phone:
         description: '选择手机型号：'
         required: true
-        default: 'MI10_Pro'
+        default: 'MI10'
         type: choice
         options:
+          - MI10
           - MI10_Pro
-
+          - MI10_Ultra
+          - REDMI_K30_Pro
+          - REDMI_K30s_Ultra
+      susfs:
+        description: '是否集成SUSFS'
+        required: true
+        default: true
+        type: boolean
+      version:
+        description: '自定义版本名（如perf-xxx）/可为空（则为n0kernel）'
+        required: false
+        type: string
 jobs:
   build_job:
     runs-on: ubuntu-22.04
     env:
+      CCACHE_COMPILERCHECK: "%compiler% -dumpmachine; %compiler% -dumpversion"
+      CCACHE_NOHASHDIR: "true"
+      CCACHE_HARDLINK: "true"
       CI: "false"
-      KERNEL_DIR: ${{ github.workspace }}/kernel_workspace/android_kernel
-      CLANG_VERSION: "21.0.0git-20250525"
-      ARCH: arm64
-      SUBARCH: arm64
-
     steps:
 
-
-      - name: ⚙️ 配置 ccache
-        run: |
-          sudo apt install ccache
-          mkdir -p "${{ github.workspace }}/ccache"
-          ccache --version
-          ccache --max-size=10G
-          ccache --set-config=sloppiness=file_macro,locale,time_macros
-          ccache --set-config=hash_dir=false
-          ccache --set-config=max_files=0
-          
-          echo "CCACHE_DIR=${{ github.workspace }}/ccache" >> $GITHUB_ENV
-          echo "CCACHE_BASEDIR=${{ env.KERNEL_DIR }}" >> $GITHUB_ENV
-          echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
-          echo "$(dirname $(which ccache))" >> $GITHUB_PATH
-          ccache --zero-stats
-
-      - name: 📥 恢复 ccache 缓存
-        uses: actions/cache@v4
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
         with:
-          path: ${{ github.workspace }}/ccache
-          key: ccache-${{ github.event.inputs.phone }}-clang-${{ hashFiles('android_kernel/**/arch/arm64/configs/*_defconfig', '**/KernelSU-Next/**','**/scripts/setlocalversion', '**/Makefile') }}
-          restore-keys: |
-            ccache-${{ github.event.inputs.phone }}-
-            ccache-
-
-      - name: 安装编译依赖
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libssl-dev ncurses-dev xmlto kmod flex bison \
-            zlib1g-dev libelf-dev libdw-dev libiberty-dev \
-            python3-dev libcap-dev bc rsync lz4 liblz4-tool \
-            dwarves libncurses5-dev libpci-dev pigz gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi \
-            binutils-aarch64-linux-gnu \
-            binutils-arm-linux-gnueabi
+          root-reserve-mb: 8192
+          temp-reserve-mb: 2048
+          swap-size-mb: 4096
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
 
       - name: 1.下载编译工具
         run: |
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           cd $GITHUB_WORKSPACE/kernel_workspace
-          wget -q https://github.com/ZyCromerZ/Clang/releases/download/${CLANG_VERSION}-release/Clang-${CLANG_VERSION}.tar.gz
+          wget -q https://github.com/ZyCromerZ/Clang/releases/download/19.0.0git-20240125-release/Clang-19.0.0git-20240125.tar.gz
           mkdir -p clang
-          tar --use-compress-program=pigz -xf Clang-${CLANG_VERSION}.tar.gz -C clang
+          tar -xzf Clang-19.0.0git-20240125.tar.gz -C clang
 
       - name: 2.克隆源码与补丁
         run: |
           cd $GITHUB_WORKSPACE/kernel_workspace
-          git clone https://github.com/yspbwx2010/kernel_xiaomi_sm8250_mod.git --depth=1 android_kernel
-          git clone https://github.com/nobbs00/AnyKernel3.git src
+          git clone https://github.com/nobbs00/nikokernel_xiaomi_sm8250_mod_new.git --depth=1 android_kernel
+          git clone https://github.com/zzh20188/AUTO_BUILD.git src
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b kernel-4.19 --depth=1 susfs
 
-      - name: 3.安装sukisu-kernel
+      - name: 3.安装SukiSU-Ultra
         run: |
-          cd ${KERNEL_DIR}
+          cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel
           curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/susfs-dev/kernel/setup.sh" | bash -s susfs-dev
 
-      - name: 4.开始构建
+      - name: 4.集成KSU
         run: |
-          export PATH=${KERNEL_DIR}/../clang/bin:$PATH
-          export MAKE_ARGS="O=out"
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export KCFLAGS="\
-            -march=armv8.2-a+crypto+dotprod \
-            -mcpu=cortex-a77 \
-            -fno-strict-aliasing \
-            -fno-common \
-            -pipe \
-            -Wno-error -mllvm -import-instr-limit=30"
+          ls
+          echo "进入源码目录"
+          cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel
+          cp $GITHUB_WORKSPACE/kernel_workspace/src/patches/* .
+          # patch -p1 < new_defconfig.patch
+          patch -p1 < non-kprobes.patch
+          # tail -n 10 arch/arm64/configs/vendor/umi_defconfig
 
-          export LDFLAGS="\
-            -plugin ${KERNEL_DIR}/../clang/lib/LLVMgold.so"
-
-          cd ${KERNEL_DIR}
+      - name: 5.应用susfs补丁
+        run: |
+          if [ ${{ inputs.susfs }} = true ]; then
+            echo "选择集成susfs"
+            cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel
+            echo "复制susfs/kernel_patches/fs/* 的内容"
+            cp $GITHUB_WORKSPACE/kernel_workspace/susfs/kernel_patches/fs/* ./fs/
+            echo "复制susfs/kernel_patches/include/linux/* 的内容"
+            cp $GITHUB_WORKSPACE/kernel_workspace/susfs/kernel_patches/include/linux/* ./include/linux/
+            echo "复制susfs内核源码补丁"
+            cp $GITHUB_WORKSPACE/kernel_workspace/susfs/kernel_patches/50_add_susfs_in_kernel-4.19.patch .
+            echo "执行susfs补丁"
+            patch -p1 < 50_add_susfs_in_kernel-4.19.patch || true
+            echo "修复"
+            patch -p1 < after_patch_fix.patch            
+          else
+            echo "跳过集成susfs"
+          fi
+        
+      - name: 6.开始构建
+        run: |
+          export PATH=$GITHUB_WORKSPACE/kernel_workspace/clang/bin:$PATH
+          echo "Updated PATH: $PATH"
+          clang --version
           
+          cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel
+          # 自定义版本
+          if [ ! -z ${{ inputs.version }} ]; then
+            echo "不为空"
+            sed -i 's/ -dirty//g' ./scripts/setlocalversion
+            sed -i '$s|echo "\$res"|echo "-${{ inputs.version }}"|' ./scripts/setlocalversion
+          else
+            echo "字符串为空"
+          fi
 
-          # 设备配置
-          case "${{ github.event.inputs.phone }}" in
+          case "${{ inputs.phone }}" in
+              "MI10")
+                  echo "选择小米10配置"
+                  DEFCONFIG=vendor/umi_defconfig
+                  ;;
               "MI10_Pro")
-                  DEFCONFIG="cmi_defconfig"
+                  echo "选择小米10pro配置"
+                  DEFCONFIG=vendor/cmi_user_defconfig
+                  ;;
+              "REDMI_K30_Pro")
+                  echo "选择红米k30pro配置"
+                  DEFCONFIG=vendor/lmi_defconfig
+                  ;;
+              "REDMI_K30s_Ultra")
+                  echo "选择红米k30sUltra配置"
+                  DEFCONFIG=vendor/apollo_defconfig
+                  ;;
+              "MI10_Ultra")
+                  echo "选择小米10Ultra配置"
+                  DEFCONFIG=vendor/cas_defconfig
                   ;;
               *)
-                  echo "错误：未知设备"
-                  exit 1
+                  echo "非法内容"
                   ;;
           esac
 
-          # 生成配置
-          make ARCH=${ARCH} SUBARCH=${SUBARCH} $MAKE_ARGS $DEFCONFIG
+          echo "当前配置为 $DEFCONFIG"
+          echo '修改defconfig'
+          echo "CONFIG_MODULES=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KPROBES=n" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_PATH=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SUS_OVERLAYFS=n" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_TRY_UMOUNT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y" >> ./arch/arm64/configs/$DEFCONFIG
+          echo "CONFIG_KSU_SUSFS_OPEN_REDIRECT=y" >> ./arch/arm64/configs/$DEFCONFIG
 
-          # 硬件特性优化配置
-          scripts/config --file out/.config \
-            -e KALLSYMS \
-            -e KALLSYMS_ALL \
-            -e KPROBES \
-            -e HAVE_KPROBES \
-            -e KPROBE_EVENTS \
-            -e TMPFS_XATTR=y \
-            -e TMPFS_POSIX_ACL \
-            -e IP_NF_TARGET_TTL \
-            -e IP6_NF_TARGET_HL \
-            -e IP6_NF_MATCH_HL \
-            -e UCLAMP_TASK \
-            -e TCP_CONG_ADVANCED \
-            -e TCP_CONG_BIC \
-            -e TCP_CONG_CUBIC \
-            -e TCP_CONG_WESTWOOD \
-            -e TCP_CONG_HTCP \
-            -e TCP_CONG_HSTCP \
-            -e TCP_CONG_HYBLA \
-            -e TCP_CONG_VEGAS \
-            -e TCP_CONG_NV \
-            -e TCP_CONG_SCALABLE \
-            -e TCP_CONG_LP \
-            -e TCP_CONG_VENO \
-            -e TCP_CONG_YEAH \
-            -e TCP_CONG_ILLINOIS \
-            -e TCP_CONG_DCTCP \
-            -e TCP_CONG_CDG \
-            -e TCP_CONG_BBR \
-            -e DEFAULT_BBR \
-            -e NET_SCHED \
-            -e NET_SCH_HTB \
-            -e NET_SCH_HFSC \
-            -e NET_SCH_PRIO \
-            -e NET_SCH_MULTIQ \
-            -e NET_SCH_RED \
-            -e NET_SCH_SFB \
-            -e NET_SCH_SFQ \
-            -e NET_SCH_TEQL \
-            -e NET_SCH_TBF \
-            -e NET_SCH_CBS \
-            -e NET_SCH_ETF \
-            -e NET_SCH_TAPRIO \
-            -e NET_SCH_GRED \
-            -e NET_SCH_NETEM \
-            -e NET_SCH_DRR \
-            -e NET_SCH_MQPRIO \
-            -e NET_SCH_SKBPRIO \
-            -e NET_SCH_CHOKE \
-            -e NET_SCH_QFQ \
-            -e NET_SCH_CODEL \
-            -e NET_SCH_FQ_CODEL \
-            -e NET_SCH_CAKE \
-            -e NET_SCH_FQ \
-            -e NET_SCH_HHF \
-            -e NET_SCH_PIE \
-            -e NET_SCH_FQ_PIE \
-            -e NET_SCH_INGRESS \
-            -e NET_SCH_PLUG \
-            -e NET_SCH_ETS \
-            -e NET_SCH_FIFO \
-            -e NET_SCH_DEFAULT \
-            -e DEFAULT_FQ \
-            -e MQ_IOSCHED_DEADLINE \
-            -e MQ_IOSCHED_KYBER \
-            -e IOSCHED_BFQ \
-            -e BFQ_GROUP_IOSCHED \
-            -e ENERGY_MODEL \
-            -e CPU_IDLE \
-            -e CPU_IDLE_GOV_MENU \
-            -e CPU_IDLE_GOV_TEO \
-            -e ARM_PSCI_CPUIDLE \
-            -e CPU_FREQ \
-            -e CPU_FREQ_STAT \
-            -e CPU_FREQ_TIMES \
-            -e CPU_FREQ_GOV_POWERSAVE \
-            -e CPU_FREQ_GOV_CONSERVATIVE \
-            -e CPU_FREQ_GOV_USERSPACE \
-            -e CPU_FREQ_GOV_ONDEMAND \
-            -e ZRAM \
-            -e ZSMALLOC \
-            -e ZRAM_WRITEBACK \
-            -e CRYPTO_LZ4HC \
-            -e CRYPTO_LZ4K \
-            -e CRYPTO_LZ4KD \
-            -e CRYPTO_ZSTD \
-            -e CRYPTO_842 \
-            -e CRYPTO_LZO \
-            -e CRYPTO_DEFLATE \
-            -e ZRAM_DEF_COMP_LZ4KD \
-            -e SWAP \
-            -e ZSWAP \
-            -e ANDROID_SIMPLE_LMK \
-            -e CPU_FREQ_GOV_SCHEDHORIZON \
-            -e CPU_FREQ_DEFAULT_GOV_SCHEDHORIZON \
-            --set-val LITTLE_CPU_MASK 15 \
-            --set-val BIG_CPU_MASK 112 \
-            --set-val PRIME_CPU_MASK 128 \
-            -e LRU_GEN \
-            -e LRU_GEN_ENABLED
+          sed -i '2s/check_defconfig//' ./build.config.gki
 
-
-          # 应用MIUI优化配置
-          echo "🔧 应用MIUI优化配置..."
-          scripts/config --file out/.config \
-            --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
-                  -e PERF_CRITICAL_RT_TASK \
-                  -e SF_BINDER \
-                  -e OVERLAY_FS \
-                  -e DEBUG_FS \
-                  -e MIGT \
-                  -e MIGT_ENERGY_MODEL \
-                  -e MIHW \
-                  -e PACKAGE_RUNTIME_INFO \
-                  -e BINDER_OPT \
-                  -e KPERFEVENTS \
-                  -e MILLET \
-                  -e PERF_HUMANTASK \
-                  -d LTO_CLANG \
-                  -e LOCALVERSION_AUTO \
-                  -e SF_BINDER \
-                  -e XIAOMI_MIUI \
-                  -d MI_MEMORY_SYSFS \
-                  -e TASK_DELAY_ACCT \
-                  -e MIUI_ZRAM_MEMORY_TRACKING \
-                  -d CONFIG_MODULE_SIG_SHA512 \
-                  -d CONFIG_MODULE_SIG_HASH \
-                  -e MI_FRAGMENTION \
-                  -e PERF_HELPER \
-                  -e BOOTUP_RECLAIM \
-                  -e MI_RECLAIM \
-                  -e RTMM
-
-          # 追加KernelSU配置到当前配置
-              scripts/config --file out/.config \
-                  -e KSU \
-                  -e KSU_MANUAL_HOOK \
-                  -e KSU_SUSFS \
-                  -e KSU_SUSFS_HAS_MAGIC_MOUNT \
-                  -d KSU_SUSFS_SUS_PATH \
-                  -e KSU_SUSFS_SUS_MOUNT \
-                  -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-                  -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-                  -e KSU_SUSFS_SUS_KSTAT \
-                  -d KSU_SUSFS_SUS_OVERLAYFS \
-                  -e KSU_SUSFS_TRY_UMOUNT \
-                  -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
-                  -e KSU_SUSFS_SPOOF_UNAME \
-                  -e KSU_SUSFS_ENABLE_LOG \
-                  -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-                  -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-                  -d KSU_SUSFS_OPEN_REDIRECT \
-                  -d KSU_SUSFS_SUS_SU
-                  
-          # 开始构建
-          echo "🚀 Start building the kernel... (开始构建内核)"
-          make $MAKE_ARGS -j$(nproc --all) 2>&1 | tee build.log
-          
-      - name: 5.查看成果
+          make -j$(nproc --all) CC=clang O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-buildroot-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-androideabi- $DEFCONFIG
+          make -j$(nproc --all) CC=clang O=out ARCH=arm64 CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi-    
+      
+      - name: 7.查看成果
         run: |
             cd $GITHUB_WORKSPACE/kernel_workspace/android_kernel/out/arch/arm64/boot
             ls
             strings Image | grep "Linux version"
-            cp Image $GITHUB_WORKSPACE/kernel_workspace/src/
+            cp Image $GITHUB_WORKSPACE/kernel_workspace/src/Anykernel/
 
-      - name: 6.上传刷入包
+      - name: 8.上传刷入包
         uses: actions/upload-artifact@v4
         with:
-          name: cmi_${{ github.event.inputs.phone}}
-          path: kernel_workspace/src/*
+          name: KernelSU_NEXT_SUSFS_${{ github.event.inputs.phone}}
+          path: kernel_workspace/src/Anykernel/*
           retention-days: 3
