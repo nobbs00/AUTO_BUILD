@@ -160,37 +160,7 @@ jobs:
             toolchain-clang-r547379-gcc-
             toolchain-
             
-      - name: 📥 Download the compilation toolchain (下载编译工具链)
-        if: steps.cache-toolchain.outputs.cache-hit != 'true'
-        run: |
-          echo "正在下载编译工具链..."
-          # 创建工具链目录
-          mkdir -p "$TOOLCHAIN_DIR/clang"
-          mkdir -p "$TOOLCHAIN_DIR/gcc/gcc64"
-          mkdir -p "$TOOLCHAIN_DIR/gcc/gcc32"
-          
-          # 下载 Clang
-          echo "正在下载 Clang..."
-          cd "$TOOLCHAIN_DIR/clang"
-          wget -q https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/main/clang-r547379.tar.gz -O clang-r547379.tar.gz
-          tar -xzf clang-r547379.tar.gz
-          rm clang-r547379.tar.gz
-          
-          # 下载 GCC
-          echo "正在下载 GCC工具链..."
-          cd "$TOOLCHAIN_DIR/gcc/gcc64"
-          git init
-          git remote add origin https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git
-          git fetch --depth 1 origin
-          git checkout FETCH_HEAD
-          
-          cd "$TOOLCHAIN_DIR/gcc/gcc32"
-          git init
-          git remote add origin https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git
-          git fetch --depth 1 origin
-          git checkout FETCH_HEAD
-          
-          echo "✅ Toolchain download complete (工具链下载完成)"
+
 
       - name: ⚙️ Configuring KernelSU (配置 KernelSU)
         run: |
