@@ -85,6 +85,9 @@ jobs:
           echo "设备: ${DEVICE} | 系统: ${{ github.event.inputs.compiled_system }}"
           echo "KernelSU变体: ${{ github.event.inputs.kernelsu_variant }} | KPM: ${{ github.event.inputs.kpm_enable }}"
           echo "构建类型: ${{ github.event.inputs.build_type }}"
+          KSU="${{ github.event.inputs.kernelsu_variant }}"
+          KPM="${{ github.event.inputs.kpm_enable }}"
+          VERSION="${{ github.event.inputs.kernel_version }}"
 
       - name: 🚀 Maximize build space (最大化构建空间)
         uses: easimon/maximize-build-space@master
@@ -130,7 +133,7 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/kernel_workspace
           cd $GITHUB_WORKSPACE/kernel_workspace
           mkdir proton-clang
-          cd proton-clangg
+          cd proton-clang
           wget https://github.com/kdrag0n/proton-clang/archive/refs/tags/20210522.zip
           unzip 20210522.zip
           cd ..
@@ -176,8 +179,7 @@ jobs:
           # 设置环境变量
           export PATH="$GITHUB_WORKSPACE/kernel_workspace/proton-clang/proton-clang-20210522/bin:$PATH"
           
-sh ./release.sh cmi
-            
+
           # 判断KPM是否启用并开启相关配置
           if [ "$KSU" == "SukiSU-Ultra" ] && [ "$KPM" == "enable" ]; then
               echo "🔧 Enabling KPM Configuration... (开启 KPM 配置)"
@@ -210,10 +212,9 @@ sh ./release.sh cmi
 
             sed -i "s/echo \"\$res\"/echo \"${custom_part}\"/g" "$KERNEL_SOURCE/scripts/setlocalversion"
           fi
-            
-          # 开始构建
-          echo "🚀 Start building the kernel... (开始构建内核)"
-          make $MAKE_ARGS -j$(nproc --all) 2>&1 | tee build.log
+          
+            # 开始构建内核
+           sh ./release.sh cmi
             
           # 验证构建结果
           if [ -f "$KERNEL_SOURCE/out/arch/arm64/boot/Image" ]; then
@@ -320,7 +321,7 @@ sh ./release.sh cmi
     - name: 📝 Preparing files for release (准备发布文件)
       run: |
         mkdir -p release
-        cd /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/out
+        cd "$GITHUB_WORKSPACE/out"
         device_list=()
         for dir in */; do
           device_name=$(echo "$dir" | sed 's/Kernel-//' | sed 's/\/$//')
@@ -329,7 +330,7 @@ sh ./release.sh cmi
           cd "$dir"
         for zip_file in *; do
           if [[ -f "$zip_file" && "$zip_file" == *.zip ]]; then
-          mv "$zip_file" /home/runner/work/kernel_xiaomi_sm8250_mod/kernel_xiaomi_sm8250_mod/release
+          mv "$zip_file" /home/runner/work/kernel_xiaomi_sm8250_mod_new/kernel_xiaomi_sm8250_mod_new/release
         fi
           done
           cd ..
