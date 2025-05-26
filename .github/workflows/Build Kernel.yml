@@ -10,7 +10,7 @@ on:
         description: 'target device (目标设备)'
         required: true
         type: choice
-
+        default: 'cmi'
       compiled_system:
         description: 'Applicable systems (适用系统)'
         required: true
