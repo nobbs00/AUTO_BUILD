@@ -1,148 +1,248 @@
-name: Mi10Pro-cmi HyperOS1.0.5 Kernel Build (省电优化版)
+name: Mi10Pro-cmi Kernel Build (省电优化版·AOSP+MIUI双包)
 on:
   workflow_dispatch:
     inputs:
-      phone:
-        description: 设备型号(固定cmi-小米10Pro)
+      device:
+        description: '设备代号'
         required: true
-        default: 'MI10_Pro-cmi'
+        default: 'cmi'
         type: choice
         options:
-          - MI10_Pro-cmi
+          - cmi
+          - umi
+          - lmi
+      ksu:
+        description: '是否启用SukiSU'
+        required: true
+        default: 'noks'
+        type: choice
+        options:
+          - noks
+          - ksu
 
 jobs:
-  build_cmi_kernel:
+  build:
     runs-on: ubuntu-22.04
     env:
-      TARGET_DEVICE: cmi
+      DEVICE: ${{ inputs.device }}
+      KSU: ${{ inputs.ksu }}
       KERNEL_DIR: ${{ github.workspace }}/kernel_xiaomi_sm8250_mod
-      CLANG_VERSION: 20210522
+      CLANG_VER: 20210522
       ARCH: arm64
       SUBARCH: arm64
-      HYPEROS_VER: 1.0.5
-      GIT_COMMIT_ID: ${{ github.sha }}
 
     steps:
-      - name: ⚙️ 安装系统依赖
+      - name: Install dependencies
         run: |
           sudo apt update -y
           sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev \
-            python3 python3-pip python-is-python3 libelf-dev dwarves rsync lz4 gcc-aarch64-linux-gnu \
+            python3 python-is-python3 libelf-dev dwarves rsync lz4 gcc-aarch64-linux-gnu \
             gcc-arm-linux-gnueabi binutils-aarch64-linux-gnu ccache
-          sudo apt autoremove -y && sudo apt clean
 
-      - name: 📥 拉取内核源码
+      - name: Clone kernel source
         run: |
           git clone https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod.git "$KERNEL_DIR"
           cd "$KERNEL_DIR"
           git checkout android15-lineage22-mod
-          git fetch --depth 1 && git pull
 
-      - name: 🛠 下载 Proton-Clang 20210522
+      - name: Download proton-clang 20210522
         run: |
-          mkdir -p "$HOME"/proton-clang
-          cd "$HOME"/proton-clang
-          wget -q --timeout=30 --tries=3 https://github.com/kdrag0n/proton-clang/archive/refs/tags/${CLANG_VERSION}.zip
-          unzip -q ${CLANG_VERSION}.zip
-          TOOLCHAIN_PATH="$HOME"/proton-clang/proton-clang-${CLANG_VERSION}/bin
-          echo "TOOLCHAIN_PATH=$TOOLCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "$TOOLCHAIN_PATH" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/proton-clang"
+          cd "$HOME/proton-clang"
+          wget -q https://github.com/kdrag0n/proton-clang/archive/refs/tags/${CLANG_VER}.zip
+          unzip -q ${CLANG_VER}.zip
+          echo "TOOLCHAIN_PATH=$HOME/proton-clang/proton-clang-${CLANG_VER}/bin" >> "$GITHUB_ENV"
+          echo "$HOME/proton-clang/proton-clang-${CLANG_VER}/bin" >> "$GITHUB_PATH"
 
-      - name: 🚀 编译内核（深度省电优化 · 不卡不发热）
+      - name: Build kernel
         run: |
           cd "$KERNEL_DIR"
           export PATH="$TOOLCHAIN_PATH:$PATH"
+          GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
+          DATE=$(date +%Y%m%d_%H%M%S)
+
+          if [ "$KSU" = "ksu" ]; then
+            KSU_ENABLE=1
+            KSU_ZIP_STR=SukiSU-SUSFS
+          else
+            KSU_ENABLE=0
+            KSU_ZIP_STR=NoKernelSU
+          fi
 
           MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          LLVM=1 LLVM_IAS=1"
+          CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+          CLANG_TRIPLE=aarch64-linux-gnu-"
 
-          # 轻量优化，不激进、不炸编译
-          export KCFLAGS="-fno-strict-aliasing -fno-common -pipe -Wno-error -O2"
-          export LDFLAGS=""
+          export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
+          mkdir -p "$CCACHE_DIR"
 
-          # 版本号
+          rm -rf anykernel
+          git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth 1 anykernel
+
           lv="-perf"
-          lv_new="-HyperOS${HYPEROS_VER}-A13-$(date +%Y%m%d)-${GIT_COMMIT_ID:0:8}-省电版"
-          sed -i "s|$lv|$lv_new|g" arch/arm64/configs/cmi_defconfig
+          lv_new="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-省电版"
+          sed -i "s/$lv/$lv_new/g" arch/arm64/configs/${DEVICE}_defconfig
 
-          # 备份 DTS
-          dts_source=arch/arm64/boot/dts/vendor/qcom
-          cp -a "$dts_source" .dts.bak
+          ##############################################################################
+          # Build AOSP
+          ##############################################################################
+          rm -rf out
+          make $MAKE_ARGS ${DEVICE}_defconfig
 
-          # 生成 config
-          make $MAKE_ARGS cmi_defconfig
-
-          # ==================== 省电核心优化 ====================
-          scripts/config --file out/.config \
-          # 基础
-          -e KALLSYMS -e KALLSYMS_ALL \
-          # 文件系统省电
-          -e EROFS_FS -e F2FS_FS -e F2FS_FS_TRIM -e F2FS_IDLE_FLUSH \
-          # zram 省电（减少后台交换）
-          -e ZRAM -e ZRAM_WRITEBACK -e CRYPTO_LZ4 -e CRYPTO_ZSTD \
-          # 最强省电：深度休眠、减少唤醒
-          -e CPU_IDLE -e CPU_IDLE_LPM -e CPU_IDLE_GOV_LPMUNIVERSAL \
-          -e SCHED_WALT -e SCHED_SMARTPRIORITY -e SCHED_POWER_EFFICIENT \
-          # 降低后台耗电，延长待机
-          -e ANDROID_SIMPLE_LMK -e LRU_GEN -e LRU_GEN_ENABLED \
-          -e MI_RECLAIM -e BOOTUP_RECLAIM -e MEMCG_OOM_CONTROL \
-          # 网络省电
-          -e TCP_CONG_BBR -e DEFAULT_BBR -e NET_SCH_FQ_CODEL \
-          # IO 省电（UFS3.0 低功耗）
-          -e MQ_IOSCHED_KYBER -e IOSCHED_BFQ -e BFQ_POWER_EFFICIENT \
-          # 小米/高通省电特性
-          -e XIAOMI_MIUI -e MIHW -e MIGT -e MIGT_ENERGY_MODEL \
-          -e PERF_HUMANTASK -e PERF_AUDIO_LOW_POWER \
-          # 关闭调试、减少功耗开销
-          -d DEBUG_FS -d DEBUG_INFO -d LTO_CLANG -d LOCALVERSION_AUTO \
-          -d KSU -d KSU_SUSFS -d KPM \
-          # GPU/总线省电
-          -e DEVFREQ_GOV_SIMPLE_ONDEMAND -e DEVFREQ_GOV_POWERSAVE \
-          -e CPU_FREQ_GOV_SCHEDUTIL -e CPU_FREQ_DEFAULT_GOV_SCHEDUTIL \
-          -e CPU_FREQ_GOV_POWERSAVE -e CPU_ISOLATION
-
-          # 编译线程降低，更稳
-          make $MAKE_ARGS -j4 2>&1 | tee build.log
-
-          if [ ! -f out/arch/arm64/boot/Image ]; then
-            echo "❌ 编译失败"
-            exit 1
+          if [ $KSU_ENABLE -eq 1 ]; then
+            curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" | bash -s f4863b20cc8dc0f8cc67418980f022e43014b598
+            scripts/config --file out/.config \
+              -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS_HAS_MAGIC_MOUNT \
+              -d KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT \
+              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+              -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+              -e KSU_SUSFS_SUS_KSTAT -d KSU_SUSFS_SUS_OVERLAYFS \
+              -e KSU_SUSFS_TRY_UMOUNT \
+              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+              -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \
+              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU -e KPM
+          else
+            scripts/config --file out/.config -d KSU
           fi
 
-          # 合并DTB
+          # AOSP 省电优化
+          scripts/config --file out/.config \
+            -e CPU_IDLE_LPM \
+            -e CPU_FREQ_GOV_SCHEDUTIL \
+            -e DEVFREQ_GOV_POWERSAVE \
+            -e F2FS_IDLE_FLUSH \
+            -d FAULT_INJECTION \
+            -d DEBUG_KERNEL \
+            -d DEBUG_INFO \
+            -d PM_DEBUG
+
+          make $MAKE_ARGS -j4
+
           find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
 
-          # 恢复源码
-          rm -rf "$dts_source"
-          mv .dts.bak "$dts_source"
-          sed -i "s|$lv_new|$lv|g" arch/arm64/configs/cmi_defconfig
+          if [ $KSU_ENABLE -eq 1 ]; then
+            cd out/arch/arm64/boot
+            wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
+            chmod +x patch_linux
+            ./patch_linux
+            rm -f Image
+            mv oImage Image
+            cd -
+          fi
 
-          # 打包
-          git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth 1 anykernel
           mkdir -p anykernel/kernels
           cp out/arch/arm64/boot/Image anykernel/kernels/
           cp out/arch/arm64/boot/dtb anykernel/kernels/
 
           cd anykernel
-          ZIP=Mi10Pro-cmi_HyperOS1.0.5_$(date +%Y%m%d_%H%M%S)_省电优化版.zip
-          zip -r9 "$ZIP" . -x '.git*'
-          mv "$ZIP" "$KERNEL_DIR"/
+          ZIP_AOSP=Kernel_AOSP_${DEVICE}_${KSU_ZIP_STR}_省电版_${DATE}_${GIT_COMMIT_ID}.zip
+          zip -r9 "$ZIP_AOSP" ./* -x '.git*' out/ '*.zip'
+          mv "$ZIP_AOSP" "$KERNEL_DIR"/
+          cd ..
 
-      - name: 📦 查看产物
-        run: |
-          cd "$KERNEL_DIR"
-          ls -lh *.zip out/arch/arm64/boot/Image
+          ##############################################################################
+          # Build MIUI / HyperOS （完整省电优化 + 不识别成AOSP）
+          ##############################################################################
+          rm -rf out
+          dts_source=arch/arm64/boot/dts/vendor/qcom
+          cp -a "$dts_source" .dts.bak
 
-      - name: 📤 上传刷机包
+          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j1s* ${dts_source}/dsi-panel-j2*
+          sed -i 's/<155>/<1544>/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
+          sed -i 's/<155>/<1545>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
+          sed -i 's/<155>/<1546>/g' ${dts_source}/dsi-panel-k11a* ${dts_source}/dsi-panel-l11r*
+          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j11* ${dts_source}/dsi-panel-j3s* ${dts_source}/dsi-panel-k11a* ${dts_source}/dsi-panel-l11r*
+          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j1s* ${dts_source}/dsi-panel-j2*
+
+          sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
+          sed -i 's/\/\/ mi,mdss-dsi-smart-fps-max_framerate/mi,mdss-dsi-smart-fps-max_framerate/g' ${dts_source}/dsi-panel*
+          sed -i 's/\/\/ qcom,mdss-dsi-pan-enable-smart-fps/qcom,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
+          sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/&/g' ${dts_source}/dsi-panel*
+
+          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a*
+          sed -i 's/144 120 90 60/144 120 90 60 50 48 30/g' ${dts_source}/dsi-panel-j3s*
+
+          sed -i 's/\/\/39 00 00 00 00 00 03 51 03 FF/39 00 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j9*
+          sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11*
+
+          make $MAKE_ARGS ${DEVICE}_defconfig
+
+          if [ $KSU_ENABLE -eq 1 ]; then
+            scripts/config --file out/.config \
+              -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS_HAS_MAGIC_MOUNT \
+              -d KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT \
+              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
+              -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
+              -e KSU_SUSFS_SUS_KSTAT -d KSU_SUSFS_SUS_OVERLAYFS \
+              -e KSU_SUSFS_TRY_UMOUNT \
+              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
+              -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \
+              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+              -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU -e KPM
+          else
+            scripts/config --file out/.config -d KSU
+          fi
+
+          ##############################################################################
+          # 【核心：MIUI 深度省电配置】
+          ##############################################################################
+          scripts/config --file out/.config \
+            --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
+            -e PERF_CRITICAL_RT_TASK -e SF_BINDER -e OVERLAY_FS \
+            -d DEBUG_FS -d DEBUG_INFO -d PM_DEBUG -d FAULT_INJECTION \
+            -e MIGT -e MIGT_ENERGY_MODEL -e MIHW -e MILLET \
+            -e XIAOMI_MIUI -e PERF_HUMANTASK \
+            -e PACKAGE_RUNTIME_INFO -e BINDER_OPT \
+            -d LTO_CLANG -d LOCALVERSION_AUTO -d MI_MEMORY_SYSFS \
+            -e TASK_DELAY_ACCT -e MIUI_ZRAM_MEMORY_TRACKING \
+            -e MI_FRAGMENTION -e PERF_HELPER -e BOOTUP_RECLAIM -e MI_RECLAIM -e RTMM \
+            `# 真正省电关键 ↓↓↓` \
+            -e CPU_IDLE_LPM \
+            -e CPU_IDLE_GOV_LPMUNIVERSAL \
+            -e CPU_FREQ_GOV_SCHEDUTIL \
+            -e DEVFREQ_GOV_POWERSAVE \
+            -e DEVFREQ_GOV_SIMPLE_ONDEMAND \
+            -e F2FS_IDLE_FLUSH \
+            -e F2FS_FS_TRIM
+
+          make $MAKE_ARGS -j4
+
+          find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
+
+          rm -rf "$dts_source"
+          mv .dts.bak "$dts_source"
+
+          if [ $KSU_ENABLE -eq 1 ]; then
+            cd out/arch/arm64/boot
+            wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
+            chmod +x patch_linux
+            ./patch_linux
+            rm -f Image
+            mv oImage Image
+            cd -
+          fi
+
+          mkdir -p anykernel/kernels
+          cp out/arch/arm64/boot/Image anykernel/kernels/
+          cp out/arch/arm64/boot/dtb anykernel/kernels/
+
+          cd anykernel
+          ZIP_MIUI=Kernel_MIUI_${DEVICE}_${KSU_ZIP_STR}_省电版_${DATE}_${GIT_COMMIT_ID}.zip
+          zip -r9 "$ZIP_MIUI" ./* -x '.git*' out/ '*.zip'
+          mv "$ZIP_MIUI" "$KERNEL_DIR"/
+          cd ..
+
+          sed -i "s/$lv_new/$lv/g" arch/arm64/configs/${DEVICE}_defconfig
+
+      - name: Upload kernels
         uses: actions/upload-artifact@v4
         with:
-          name: Mi10Pro-cmi-Kernel-省电优化版
+          name: Kernel-${{ inputs.device }}-省电优化版
           path: |
-            ${{ env.KERNEL_DIR }}/*.zip
-            ${{ env.KERNEL_DIR }}/out/arch/arm64/boot/Image
-            ${{ env.KERNEL_DIR }}/out/arch/arm64/boot/dtb
-            ${{ env.KERNEL_DIR }}/build.log
+            ${{ env.KERNEL_DIR }}/Kernel_*.zip
           retention-days: 10
