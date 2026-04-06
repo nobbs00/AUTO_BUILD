@@ -9,174 +9,171 @@ on:
         type: choice
         options:
           - MI10_Pro-cmi
+
 jobs:
   build_cmi_kernel:
     runs-on: ubuntu-22.04
     env:
       CI: "false"
-      # 源码/编译核心配置
       KERNEL_DIR: ${{ github.workspace }}/kernel_xiaomi_sm8250_mod
-      CLANG_VERSION: "20210522" # 源码推荐proton-clang 20210522
+      CLANG_VERSION: "20210522"
       ARCH: arm64
       SUBARCH: arm64
       GIT_COMMIT_ID: ${{ github.sha }}
-      # 系统/硬件标识
       TARGET_DEVICE: "cmi"
       HYPEROS_VER: "1.0.5"
       ANDROID_API: 33
-      # 源码原生特性开关
       ENABLE_EROFS: 1
       ENABLE_F2FS_TRIM: 1
       ENABLE_USB_SERIAL: 1
       ENABLE_ZRAM_MULTI_COMP: 1
+
     steps:
-      - name: ⚙️ 配置系统环境（源码推荐依赖）
+      - name: ⚙️ 配置系统环境
         run: |
           sudo apt update && sudo apt upgrade -y
-          # 源码README指定基础依赖+补全HyperOS编译依赖
           sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev ccache \
             python-is-python3 libelf-dev libdw-dev libiberty-dev zlib1g-dev dwarves rsync lz4 liblz4-tool \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi binutils-aarch64-linux-gnu binutils-arm-linux-gnueabi \
             pigz libcrypto++-dev libssl3
           sudo apt autoremove -y && sudo apt clean
-          # 配置ccache（源码默认路径，兼容build.sh）
+
           mkdir -p $HOME/.cache/ccache_mikernel
-          ccache --version && ccache --max-size=20G && ccache --zero-stats
+          ccache --set-config=max_size=20G
+          ccache --zero-stats
           echo "CCACHE_DIR=$HOME/.cache/ccache_mikernel" >> $GITHUB_ENV
           echo "/usr/lib/ccache" >> $GITHUB_PATH
 
-      - name: 📥 拉取liyafe1997官方SM8250内核源码（android15-lineage22-mod）
+      - name: 📥 拉取内核源码
         run: |
           git clone https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod.git $KERNEL_DIR
           cd $KERNEL_DIR
-          git checkout android15-lineage22-mod # 切换到主力分支，修复1%电量bug
-          git fetch --depth=1 && git pull
-          # 验证cmi配置存在
-          if [ ! -f "arch/arm64/configs/cmi_defconfig" ]; then echo "cmi配置缺失"; exit 1; fi
+          git checkout android15-lineage22-mod
+          git fetch --depth 1 && git pull
 
-      - name: 🛠 下载源码推荐Proton-Clang工具链（20210522）
+          if [ ! -f "arch/arm64/configs/cmi_defconfig" ]; then
+            echo "ERROR: cmi_defconfig 不存在"
+            exit 1
+          fi
+
+      - name: 🛠 下载 Proton-Clang 20210522
         run: |
           mkdir -p $HOME/proton-clang
           cd $HOME/proton-clang
           wget -q --timeout=30 --tries=3 https://github.com/kdrag0n/proton-clang/archive/refs/tags/${CLANG_VERSION}.zip
           unzip -q ${CLANG_VERSION}.zip
-          mv proton-clang-${CLANG_VERSION} proton-clang-${CLANG_VERSION}
-          # 验证工具链完整性
+
           TOOLCHAIN_PATH=$HOME/proton-clang/proton-clang-${CLANG_VERSION}/bin
-          if [ ! -f "$TOOLCHAIN_PATH/clang" ] || [ ! -f "$TOOLCHAIN_PATH/aarch64-linux-gnu-ld" ]; then
-              echo "工具链下载失败"; exit 1
+          if [ ! -f "$TOOLCHAIN_PATH/clang" ]; then
+            echo "ERROR: 工具链异常"
+            exit 1
           fi
+
           echo "TOOLCHAIN_PATH=$TOOLCHAIN_PATH" >> $GITHUB_ENV
           echo "$TOOLCHAIN_PATH" >> $GITHUB_PATH
 
-      - name: 🚀 开始构建（cmi/HyperOS1.0.5/安卓13 专属优化）
+      - name: 🚀 开始编译内核
         run: |
           cd $KERNEL_DIR
-          # 导出编译参数（对齐源码build.sh，添加HyperOS专属优化）
           export PATH="$TOOLCHAIN_PATH:$PATH"
-          export MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CLANG_TRIPLE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1"
-          # SM8250(Cortex-A77/A55) + 安卓13 专属编译优化（兼顾性能/功耗/兼容性）
-          export KCFLAGS="\
-            -march=armv8.2-a+crypto+dotprod+fp16 \
+
+          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            LLVM=1 LLVM_IAS=1"
+
+          KCFLAGS="-march=armv8.2-a+crypto+dotprod+fp16 \
             -mcpu=cortex-a77.cortex-a55 -mtune=cortex-a77.cortex-a55 \
             -fno-strict-aliasing -fno-common -pipe -Wno-error \
             -O2 -flto=thin -fstack-protector-strong \
             -mllvm -import-instr-limit=40"
-          # 源码原生特性+HyperOS适配LDFLAGS
-          export LDFLAGS="-plugin $TOOLCHAIN_PATH/../lib/LLVMgold.so -Wl,--hash-style=gnu -Wl,--build-id=sha1"
 
-          # ====== 版本号注入（专属标识，兼容源码命名规则）======
+          export KCFLAGS
+          export LDFLAGS="-Wl,--hash-style=gnu -Wl,--build-id=sha1"
+
+          # 版本号注入
           local_version_str="-perf"
           local_version_date_str="-HyperOS${HYPEROS_VER}-A13-$(date +%Y%m%d)-${GIT_COMMIT_ID:0:8}-perf"
-          sed -i "s/${local_version_str}/${local_version_date_str}/g" arch/arm64/configs/cmi_defconfig
+          sed -i "s|$local_version_str|$local_version_date_str|g" arch/arm64/configs/cmi_defconfig
 
-          # ====== 源码DTS优化+HyperOS1.0.5 小米10Pro专属适配 ======
+          # DTS 备份与优化
           dts_source=arch/arm64/boot/dts/vendor/qcom
-          cp -a ${dts_source} .dts.bak
-          # 1. 修复小米10Pro屏幕适配（解决HyperOS黑屏/亮度闪跳，源码重点优化项）
-          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j1s*
-          sed -i 's/<155>/<1545>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j1s*
-          # 2. HyperOS动态帧率适配（保留120/90/60/50/30，兼容源码刷新率优化）
-          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-36-02-0c-dsc-video.dtsi
-          # 3. 启用小米智能帧率+关闭QSync冲突（适配HyperOS功耗管控，修复睡死）
-          sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
-          sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/qcom,mdss-dsi-qsync-min-refresh-rate/g' ${dts_source}/dsi-panel*
-          # 4. 精准亮度控制（修复HyperOS自动亮度忽明忽暗，源码PM8150电量计适配）
-          sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          # 5. SM8250总线优化（适配小米10Pro LPDDR4X/UFS3.0，源码block层优化）
-          sed -i 's/clk-frequency = <1866000000>/clk-frequency = <2133000000>/g' ${dts_source}/sdm845/sdm845.dtsi
+          cp -a "$dts_source" .dts.bak || true
 
-          # ====== 加载cmi默认配置 + 深度优化（源码原生特性+HyperOS适配）======
+          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j1s* 2>/dev/null
+          sed -i 's/<155>/<1545>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi 2>/dev/null
+          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi 2>/dev/null
+          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j1s* 2>/dev/null
+          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-36-02-0c-dsc-video.dtsi 2>/dev/null
+          sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel* 2>/dev/null
+          sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/&/g' ${dts_source}/dsi-panel* 2>/dev/null
+          sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi 2>/dev/null
+          sed -i 's/clk-frequency = <1866000000>/clk-frequency = <2133000000>/g' ${dts_source}/sdm845/sdm845.dtsi 2>/dev/null
+
+          # 生成 defconfig
           make $MAKE_ARGS cmi_defconfig
+
+          # 配置开关（修复语法错误）
           scripts/config --file out/.config \
-            # 基础特性（对齐源码，保留调试/兼容）
             -e KALLSYMS -e KALLSYMS_ALL -e KPROBES -e HAVE_KPROBES \
-            # 安卓13安全特性（HyperOS强制要求，源码已兼容）
             -e CONFIG_ARM64_PTR_AUTH -e CONFIG_STACKPROTECTOR_STRONG \
-            # 源码核心特性开启（EROFS/F2FS/USB串口/ZRAM多压缩）
             -e EROFS_FS -e EROFS_FS_XATTR -e EROFS_FS_ZIP_DECOMPRESSION \
             -e F2FS_FS -e F2FS_REALTIME_DISCARD -e F2FS_FS_TRIM \
             -e USB_SERIAL -e USB_SERIAL_CH341 -e USB_SERIAL_FTDI -e USB_SERIAL_PL2303 \
             -e ZRAM -e ZRAM_WRITEBACK -e CRYPTO_LZ4 -e CRYPTO_LZ4HC -e CRYPTO_ZSTD \
-            # SM8250 CPU/内存调度（修复1%电量bug+杀后台，源码MI_RECLAIM优化）
             -e UCLAMP_TASK -e CPU_FREQ_GOV_SCHEDHORIZON -e CPU_FREQ_DEFAULT_GOV_SCHEDHORIZON \
             --set-val LITTLE_CPU_MASK 15 --set-val BIG_CPU_MASK 112 --set-val PRIME_CPU_MASK 128 \
             -e ANDROID_SIMPLE_LMK -e LRU_GEN -e LRU_GEN_ENABLED -e MI_RECLAIM -e BOOTUP_RECLAIM \
-            # 网络优化（小米10Pro双WiFi/5G，源码NET层优化+BBR）
             -e TCP_CONG_ADVANCED -e TCP_CONG_BBR -e DEFAULT_BBR -e NET_SCH_FQ_CODEL -e DEFAULT_FQ \
-            # IO调度（适配UFS3.0，源码推荐KYBER+BFQ）
             -e MQ_IOSCHED_KYBER -e IOSCHED_BFQ -e BFQ_GROUP_IOSCHED \
-            # HyperOS/MIUI专属适配（源码原生MIUI特性，关闭冲突项）
             -e XIAOMI_MIUI -e MIHW -e MILLET -e MIGT -e MIGT_ENERGY_MODEL \
             -e PERF_CRITICAL_RT_TASK -e PERF_HUMANTASK -e MIUI_ZRAM_MEMORY_TRACKING \
             --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
-            # 关闭冗余配置（减少体积，提升效率，源码推荐）
             -d DEBUG_FS -d LTO_CLANG -d LOCALVERSION_AUTO -d MI_MEMORY_SYSFS \
             -d CONFIG_MODULE_SIG_SHA512 -d CONFIG_MODULE_SIG_HASH \
-            # 禁用KSU/SUSFS（纯原生内核，适配APatch，源码可选特性）
             -d KSU -d KSU_SUSFS -d KPM
 
-          # ====== 开始编译（多核优化，避免资源耗尽）======
-          echo "🚀 构建小米10Pro-cmi HyperOS1.0.5内核（基于liyafe1997/android15-lineage22-mod）"
-          make $MAKE_ARGS -j$(($(nproc --all) - 2)) 2>&1 | tee build.log
-          # 编译校验（源码标准输出）
-          if [ ! -f "out/arch/arm64/boot/Image" ]; then echo "编译失败，查看build.log"; exit 1; fi
+          # 编译
+          make $MAKE_ARGS -j$(nproc --all) 2>&1 | tee build.log
 
-          # ====== 产物处理（源码标准流程+HyperOS适配）======
-          # 合并DTB（适配HyperOS启动加载器，源码推荐，不替换dtbo）
-          echo "📦 合并cmi专属DTB..."
-          find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + >out/arch/arm64/boot/dtb
-          # 恢复DTS源码，避免污染
-          rm -rf ${dts_source} && mv .dts.bak ${dts_source}
+          if [ ! -f "out/arch/arm64/boot/Image" ]; then
+            echo "ERROR: 编译失败 Image 未生成"
+            exit 1
+          fi
+
+          # 合并 dtb
+          find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
+
+          # 恢复 DTS
+          rm -rf "$dts_source"
+          mv .dts.bak "$dts_source" || true
+
           # 恢复版本号
-          sed -i "s/${local_version_date_str}/${local_version_str}/g" arch/arm64/configs/cmi_defconfig
+          sed -i "s|$local_version_date_str|$local_version_str|g" arch/arm64/configs/cmi_defconfig
 
-          # ====== 克隆源码官方AnyKernel3（kona分支，HyperOS适配）======
-          git clone https://github.com/liyafe1997/AnyKernel3 -b kona --single-branch --depth=1 anykernel
-          # 复制产物到打包目录（源码标准路径）
-          rm -rf anykernel/kernels/ && mkdir -p anykernel/kernels/
+          # 打包 AnyKernel3
+          git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth 1 anykernel
+          mkdir -p anykernel/kernels
           cp out/arch/arm64/boot/Image anykernel/kernels/
           cp out/arch/arm64/boot/dtb anykernel/kernels/
-          # 打包为HyperOS可刷入zip（源码命名规则+专属标识）
+
           cd anykernel
           ZIP_FILENAME=Mi10Pro-cmi_HyperOS${HYPEROS_VER}_Android13_$(date +'%Y%m%d_%H%M%S')_${GIT_COMMIT_ID:0:8}.zip
-          zip -r9 $ZIP_FILENAME ./* -x .git .gitignore out/ ./*.zip -z <<< "Mi10Pro-cmi HyperOS1.0.5 Kernel (liyafe1997/sm8250 android15-lineage22-mod)"
-          mv $ZIP_FILENAME $KERNEL_DIR/
-          cd $KERNEL_DIR
+          zip -r9 "$ZIP_FILENAME" ./* -x '.git*' *.zip out/
+          mv "$ZIP_FILENAME" $KERNEL_DIR/
+          cd ..
 
-      - name: 📋 验证构建成果
+      - name: 📋 展示构建信息
         run: |
           cd $KERNEL_DIR
-          echo "📌 内核版本信息："
+          echo "==== 内核版本 ===="
           strings out/arch/arm64/boot/Image | grep "Linux version"
-          echo "📏 产物大小："
+          echo "==== 产物信息 ===="
           ls -lh out/arch/arm64/boot/Image out/arch/arm64/boot/dtb *.zip
-          echo "📜 编译日志："
-          tail -20 build.log
 
-      - name: 📤 上传专属刷入包（保留10天，含日志/镜像/DTB）
+      - name: 📤 上传最终包
         uses: actions/upload-artifact@v4
         with:
           name: Mi10Pro-cmi_HyperOS1.0.5_Android13_Kernel
