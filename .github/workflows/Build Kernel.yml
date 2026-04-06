@@ -1,4 +1,4 @@
-name: Mi10Pro-cmi Kernel Build (省电优化版·AOSP+MIUI双包)
+name: Mi10Pro-cmi Kernel Build (MIUI单包·省电优化版)
 on:
   workflow_dispatch:
     inputs:
@@ -54,7 +54,7 @@ jobs:
           echo "TOOLCHAIN_PATH=$HOME/proton-clang/proton-clang-${CLANG_VER}/bin" >> "$GITHUB_ENV"
           echo "$HOME/proton-clang/proton-clang-${CLANG_VER}/bin" >> "$GITHUB_PATH"
 
-      - name: Build kernel
+      - name: Build MIUI Kernel
         run: |
           cd "$KERNEL_DIR"
           export PATH="$TOOLCHAIN_PATH:$PATH"
@@ -78,76 +78,14 @@ jobs:
           export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
           mkdir -p "$CCACHE_DIR"
 
-          rm -rf anykernel
+          rm -rf anykernel out
           git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth 1 anykernel
 
           lv="-perf"
           lv_new="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-省电版"
           sed -i "s/$lv/$lv_new/g" arch/arm64/configs/${DEVICE}_defconfig
 
-          ##############################################################################
-          # Build AOSP
-          ##############################################################################
-          rm -rf out
-          make $MAKE_ARGS ${DEVICE}_defconfig
-
-          if [ $KSU_ENABLE -eq 1 ]; then
-            curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" | bash -s f4863b20cc8dc0f8cc67418980f022e43014b598
-            scripts/config --file out/.config \
-              -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS_HAS_MAGIC_MOUNT \
-              -d KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT \
-              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-              -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-              -e KSU_SUSFS_SUS_KSTAT -d KSU_SUSFS_SUS_OVERLAYFS \
-              -e KSU_SUSFS_TRY_UMOUNT \
-              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
-              -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \
-              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-              -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU -e KPM
-          else
-            scripts/config --file out/.config -d KSU
-          fi
-
-          # AOSP 省电优化
-          scripts/config --file out/.config \
-            -e CPU_IDLE_LPM \
-            -e CPU_FREQ_GOV_SCHEDUTIL \
-            -e DEVFREQ_GOV_POWERSAVE \
-            -e F2FS_IDLE_FLUSH \
-            -d FAULT_INJECTION \
-            -d DEBUG_KERNEL \
-            -d DEBUG_INFO \
-            -d PM_DEBUG
-
-          make $MAKE_ARGS -j4
-
-          find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
-
-          if [ $KSU_ENABLE -eq 1 ]; then
-            cd out/arch/arm64/boot
-            wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
-            chmod +x patch_linux
-            ./patch_linux
-            rm -f Image
-            mv oImage Image
-            cd -
-          fi
-
-          mkdir -p anykernel/kernels
-          cp out/arch/arm64/boot/Image anykernel/kernels/
-          cp out/arch/arm64/boot/dtb anykernel/kernels/
-
-          cd anykernel
-          ZIP_AOSP=Kernel_AOSP_${DEVICE}_${KSU_ZIP_STR}_省电版_${DATE}_${GIT_COMMIT_ID}.zip
-          zip -r9 "$ZIP_AOSP" ./* -x '.git*' out/ '*.zip'
-          mv "$ZIP_AOSP" "$KERNEL_DIR"/
-          cd ..
-
-          ##############################################################################
-          # Build MIUI / HyperOS （完整省电优化 + 不识别成AOSP）
-          ##############################################################################
-          rm -rf out
+          # DTS 面板适配（MIUI专属）
           dts_source=arch/arm64/boot/dts/vendor/qcom
           cp -a "$dts_source" .dts.bak
 
@@ -169,9 +107,12 @@ jobs:
           sed -i 's/\/\/39 00 00 00 00 00 03 51 03 FF/39 00 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j9*
           sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11*
 
+          # 生成 defconfig
           make $MAKE_ARGS ${DEVICE}_defconfig
 
+          # KSU 配置
           if [ $KSU_ENABLE -eq 1 ]; then
+            curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" | bash -s f4863b20cc8dc0f8cc67418980f022e43014b598
             scripts/config --file out/.config \
               -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS_HAS_MAGIC_MOUNT \
               -d KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT \
@@ -188,9 +129,7 @@ jobs:
             scripts/config --file out/.config -d KSU
           fi
 
-          ##############################################################################
-          # 【核心：MIUI 深度省电配置】
-          ##############################################################################
+          # ==================== MIUI 核心 + 省电优化 ====================
           scripts/config --file out/.config \
             --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
             -e PERF_CRITICAL_RT_TASK -e SF_BINDER -e OVERLAY_FS \
@@ -201,7 +140,6 @@ jobs:
             -d LTO_CLANG -d LOCALVERSION_AUTO -d MI_MEMORY_SYSFS \
             -e TASK_DELAY_ACCT -e MIUI_ZRAM_MEMORY_TRACKING \
             -e MI_FRAGMENTION -e PERF_HELPER -e BOOTUP_RECLAIM -e MI_RECLAIM -e RTMM \
-            `# 真正省电关键 ↓↓↓` \
             -e CPU_IDLE_LPM \
             -e CPU_IDLE_GOV_LPMUNIVERSAL \
             -e CPU_FREQ_GOV_SCHEDUTIL \
@@ -210,13 +148,17 @@ jobs:
             -e F2FS_IDLE_FLUSH \
             -e F2FS_FS_TRIM
 
+          # 开始编译
           make $MAKE_ARGS -j4
 
+          # 合并dtb
           find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
 
+          # 恢复DTS
           rm -rf "$dts_source"
           mv .dts.bak "$dts_source"
 
+          # KSU补丁
           if [ $KSU_ENABLE -eq 1 ]; then
             cd out/arch/arm64/boot
             wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
@@ -227,6 +169,7 @@ jobs:
             cd -
           fi
 
+          # 打包
           mkdir -p anykernel/kernels
           cp out/arch/arm64/boot/Image anykernel/kernels/
           cp out/arch/arm64/boot/dtb anykernel/kernels/
@@ -237,12 +180,13 @@ jobs:
           mv "$ZIP_MIUI" "$KERNEL_DIR"/
           cd ..
 
+          # 恢复版本字段
           sed -i "s/$lv_new/$lv/g" arch/arm64/configs/${DEVICE}_defconfig
 
-      - name: Upload kernels
+      - name: Upload MIUI Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-${{ inputs.device }}-省电优化版
+          name: Kernel-MIUI-${{ inputs.device }}-省电版
           path: |
-            ${{ env.KERNEL_DIR }}/Kernel_*.zip
+            ${{ env.KERNEL_DIR }}/Kernel_MIUI_*.zip
           retention-days: 10
