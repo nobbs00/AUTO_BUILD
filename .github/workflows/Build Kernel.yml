@@ -147,12 +147,11 @@ jobs:
             -e DEVFREQ_GOV_SIMPLE_ONDEMAND \
             -e F2FS_IDLE_FLUSH \
             -e F2FS_FS_TRIM \
-            # 下面是新增的省电 & 稳定性优化配置
             -d KPROBES -d UPROBES -d DYNAMIC_FTRACE -d FUNCTION_TRACER -d FTRACE \
             -d DEBUG_KERNEL -d LOCKDEP -d STACKTRACE -d STACK_DEBUG \
             -d EARLY_PRINTK -d PRINTK_TIME -d SCHED_DEBUG \
             -d TRACE_IRQFLAGS -d IRQ_DOMAIN_DEBUG -d DMA_API_DEBUG \
-            -d USB_SUPPORT -d INPUT_EVBUG # 按需可开启
+            -d USB_SUPPORT -d INPUT_EVBUG
 
           # 开始编译
           make $MAKE_ARGS -j4
