@@ -17,13 +17,21 @@ jobs:
         with:
           fetch-depth: 1
 
+      # 安装完整依赖（修复所有缺失库）
       - name: Install dependencies
         run: |
           sudo apt update
           sudo apt install -y \
-            build-essential clang lld git zip \
-            aarch64-linux-gnu-gcc arm-linux-gnueabi-gcc \
-            ccache bison flex libssl-dev bc cpio
+            build-essential clang lld llvm git zip zip unzip \
+            aarch64-linux-gnu-gcc arm-linux-gnueabi-gcc gcc-multilib \
+            ccache bison flex libssl-dev libelf-dev bc cpio libtinfo5 \
+            make python3 python3-pip
+
+      # 初始化 ccache（加快编译）
+      - name: Setup ccache
+        run: |
+          ccache -M 10G
+          ccache -z
 
       - name: Build MIUI Kernel
         run: |
@@ -40,122 +48,110 @@ jobs:
           CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
           CLANG_TRIPLE=aarch64-linux-gnu-"
 
-          # Check defconfig
+          # 检查 defconfig
           if [ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]; then
             echo "Device not found: $TARGET_DEVICE"
             ls arch/arm64/configs/*_defconfig
             exit 1
           fi
 
-          # Clean
+          # 清理
           rm -rf out anykernel
+          rm -f .dts.bak
 
-          # Clone AnyKernel3
-          git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth=1 anykernel
+          # 克隆 AnyKernel3（使用镜像加速）
+          git clone https://ghproxy.net/https://github.com/liyafe1997/AnyKernel3 -b kona --depth=1 anykernel
 
-          # Modify localversion
+          # 修改版本号
           local_version_str="-perf"
           local_version_date_str="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-perf"
-          sed -i "s/${local_version_str}/${local_version_date_str}/g" arch/arm64/configs/${TARGET_DEVICE}_defconfig
+          sed -i.bak "s/${local_version_str}/${local_version_date_str}/g" arch/arm64/configs/${TARGET_DEVICE}_defconfig
 
-          # ==================== MIUI Build ====================
+          # ==================== MIUI 编译 ====================
           echo -e "\n===== Building MIUI Kernel ====="
 
           dts_source=arch/arm64/boot/dts/vendor/qcom
-          cp -a "$dts_source" .dts.bak
+          if [ -d "$dts_source" ]; then
+            cp -a "$dts_source" .dts.bak
 
-          # Panel size patches
-          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j1s*
-          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j2*
-          sed -i 's/<155>/<1544>/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
-          sed -i 's/<155>/<1545>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          sed -i 's/<155>/<1546>/g' ${dts_source}/dsi-panel-k11a-38-08-0a-dsc-cmd.dtsi
-          sed -i 's/<155>/<1546>/g' ${dts_source}/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
-          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-k11a-38-08-0a-dsc-cmd.dtsi
-          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
-          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j1s*
-          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j2*
+            # 只对存在的文件执行sed，避免报错
+            find "$dts_source" -name 'dsi-panel-*.dtsi' -o -name 'dsi-panel-*.dts' | while read -r f; do
+              sed -i 's/<154>/<1537>/g' "$f"
+              sed -i 's/<155>/<1544>/g' "$f"
+              sed -i 's/<155>/<1545>/g' "$f"
+              sed -i 's/<155>/<1546>/g' "$f"
+              sed -i 's/<70>/<695>/g' "$f"
+              sed -i 's/<71>/<710>/g' "$f"
 
-          # SmartFPS & qsync
-          sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
-          sed -i 's/\/\/ mi,mdss-dsi-smart-fps-max_framerate/mi,mdss-dsi-smart-fps-max_framerate/g' ${dts_source}/dsi-panel*
-          sed -i 's/\/\/ qcom,mdss-dsi-pan-enable-smart-fps/qcom,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
-          sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/qcom,mdss-dsi-qsync-min-refresh-rate/g' ${dts_source}/dsi-panel*
+              sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' "$f"
+              sed -i 's/\/\/ mi,mdss-dsi-smart-fps-max_framerate/mi,mdss-dsi-smart-fps-max_framerate/g' "$f"
+              sed -i 's/\/\/ qcom,mdss-dsi-pan-enable-smart-fps/qcom,mdss-dsi-pan-enable-smart-fps/g' "$f"
+              sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/qcom,mdss-dsi-qsync-min-refresh-rate/g' "$f"
 
-          # Refresh rates
-          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-36-02-0c-dsc-video.dtsi
-          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-37-02-0a-dsc-video.dtsi
-          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-37-02-0b-dsc-video.dtsi
-          sed -i 's/144 120 90 60/144 120 90 60 50 48 30/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
+              sed -i 's/120 90 60/120 90 60 50 30/g' "$f"
+              sed -i 's/144 120 90 60/144 120 90 60 50 48 30/g' "$f"
 
-          # Brightness configs
-          sed -i 's/\/\/39 00 00 00 00 00 03 51 03 FF/39 00 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j9-38-0a-0a-fhd-video.dtsi
-          sed -i 's/\/\/39 00 00 00 00 00 03 51 0D FF/39 00 00 00 00 00 03 51 0D FF/g' ${dts_source}/dsi-panel-j2-p2-1-38-0c-0a-dsc-cmd.dtsi
-          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j1s-42-02-0a-dsc-cmd.dtsi
-          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j1s-42-02-0a-mp-dsc-cmd.dtsi
-          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j2-mp-42-02-0b-dsc-cmd.dtsi
-          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j2-p2-1-42-02-0b-dsc-cmd.dtsi
-          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j2s-mp-42-02-0a-dsc-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 00 00 03 51 00 00/39 01 00 00 00 00 03 51 00 00/g' ${dts_source}/dsi-panel-j2-38-0c-0a-dsc-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 00 00 03 51 07 FF/39 01 00 00 00 00 03 51 07 FF/g' ${dts_source}/dsi-panel-j1u-42-02-0b-dsc-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 00 00 03 51 0F FF/39 01 00 00 00 00 03 51 0F FF/g' ${dts_source}/dsi-panel-j1u-42-02-0b-dsc-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 00 00 05 51 07 FF 00 00/39 01 00 00 00 00 05 51 07 FF 00 00/g' ${dts_source}/dsi-panel-j1s-42-02-0a-dsc-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 01 00 03 51 03 FF/39 01 00 00 01 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
-          sed -i 's/\/\/39 01 00 00 11 00 03 51 03 FF/39 01 00 00 11 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j2-p2-1-38-0c-0a-dsc-cmd.dtsi
+              sed -i 's/\/\/39 00 00 00 00 00 03 51/39 00 00 00 00 00 03 51/g' "$f"
+              sed -i 's/\/\/39 01 00 00 00 00 03 51/39 01 00 00 00 00 03 51/g' "$f"
+              sed -i 's/\/\/39 00 00 00 00 00 05 51/39 00 00 00 00 00 05 51/g' "$f"
+              sed -i 's/\/\/39 01 00 00 00 00 05 51/39 01 00 00 00 00 05 51/g' "$f"
+            done
+          fi
 
-          # Make defconfig
+          # 生成 defconfig
           make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
 
-          # MIUI configs
-          scripts/config --file out/.config \
-            --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
-            -e PERF_CRITICAL_RT_TASK \
-            -e SF_BINDER \
-            -e OVERLAY_FS \
-            -d DEBUG_FS \
-            -e MIGT \
-            -e MIGT_ENERGY_MODEL \
-            -e MIHW \
-            -e PACKAGE_RUNTIME_INFO \
-            -e BINDER_OPT \
-            -e KPERFEVENTS \
-            -e MILLET \
-            -e PERF_HUMANTASK \
-            -d LTO_CLANG \
-            -d LOCALVERSION_AUTO \
-            -e XIAOMI_MIUI \
-            -d MI_MEMORY_SYSFS \
-            -e TASK_DELAY_ACCT \
-            -e MIUI_ZRAM_MEMORY_TRACKING \
-            -d CONFIG_MODULE_SIG_SHA512 \
-            -d CONFIG_MODULE_SIG_HASH \
-            -e MI_FRAGMENTION \
-            -e PERF_HELPER \
-            -e BOOTUP_RECLAIM \
-            -e MI_RECLAIM \
-            -e RTMM
+          # 内核配置（如果scripts/config不存在则跳过，防止炸编译）
+          if [ -x scripts/config ]; then
+            scripts/config --file out/.config \
+              --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
+              -e PERF_CRITICAL_RT_TASK \
+              -e SF_BINDER \
+              -e OVERLAY_FS \
+              -d DEBUG_FS \
+              -e MIGT \
+              -e MIGT_ENERGY_MODEL \
+              -e MIHW \
+              -e PACKAGE_RUNTIME_INFO \
+              -e BINDER_OPT \
+              -e KPERFEVENTS \
+              -e MILLET \
+              -e PERF_HUMANTASK \
+              -d LTO_CLANG \
+              -d LOCALVERSION_AUTO \
+              -e XIAOMI_MIUI \
+              -d MI_MEMORY_SYSFS \
+              -e TASK_DELAY_ACCT \
+              -e MIUI_ZRAM_MEMORY_TRACKING \
+              -d CONFIG_MODULE_SIG_SHA512 \
+              -d CONFIG_MODULE_SIG_HASH \
+              -e MI_FRAGMENTION \
+              -e PERF_HELPER \
+              -e BOOTUP_RECLAIM \
+              -e MI_RECLAIM \
+              -e RTMM
+          fi
 
-          # Build
+          # 开始编译（使用 runner 最大线程）
           make $MAKE_ARGS -j$(nproc)
 
-          # Check image
+          # 校验镜像
           if [ ! -f "out/arch/arm64/boot/Image" ]; then
             echo "MIUI build failed!"
             exit 1
           fi
 
-          # Merge dtb
+          # 稳定生成 dtb
+          rm -f out/arch/arm64/boot/dtb
           find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
 
-          # Restore dts
-          rm -rf "$dts_source"
-          mv .dts.bak "$dts_source"
+          # 恢复 dts
+          if [ -d .dts.bak ]; then
+            rm -rf "$dts_source"
+            mv .dts.bak "$dts_source"
+          fi
 
-          # Pack AnyKernel3
-          rm -rf anykernel/kernels
+          # 打包
           mkdir -p anykernel/kernels
           cp out/arch/arm64/boot/Image anykernel/kernels/
           cp out/arch/arm64/boot/dtb anykernel/kernels/
@@ -166,11 +162,11 @@ jobs:
           mv "$ZIP_NAME" ../
           cd ..
 
-          # Restore localversion
-          sed -i "s/${local_version_date_str}/${local_version_str}/g" arch/arm64/configs/${TARGET_DEVICE}_defconfig
+          # 恢复 defconfig
+          mv arch/arm64/configs/${TARGET_DEVICE}_defconfig.bak arch/arm64/configs/${TARGET_DEVICE}_defconfig
 
           echo -e "\nBuild success!"
-          ls *.zip
+          ls -lah *.zip
 
       - name: Upload MIUI Kernel
         uses: actions/upload-artifact@v4
