@@ -1,260 +1,179 @@
-# 修复后的版本
-name: Mi10Pro-cmi Kernel Build (MIUI单包·省电优化版)
+name: Build MIUI Kernel
+
 on:
   workflow_dispatch:
     inputs:
       device:
-        description: '设备代号'
+        description: "设备代号（如 lmi / umi）"
         required: true
-        default: 'cmi'
-        type: choice
-        options:
-          - cmi
-          - umi
-          - lmi
-      ksu:
-        description: '是否启用SukiSU'
-        required: true
-        default: 'noks'
-        type: choice
-        options:
-          - noks
-          - ksu
+        default: "lmi"
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    env:
-      DEVICE: ${{ inputs.device }}
-      KSU: ${{ inputs.ksu }}
-      KERNEL_DIR: ${{ github.workspace }}/kernel_xiaomi_sm8250_mod
-      CLANG_VER: 20210522
-      ARCH: arm64
-      SUBARCH: arm64
-
     steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Install dependencies
         run: |
-          sudo apt update -y
-          sudo apt install -y build-essential git curl wget bison flex zip bc cpio libssl-dev \
-            python3 python-is-python3 libelf-dev dwarves rsync lz4 gcc-aarch64-linux-gnu \
-            gcc-arm-linux-gnueabi binutils-aarch64-linux-gnu ccache libncurses5-dev
-          ccache -M 10G
+          sudo apt update
+          sudo apt install -y \
+            build-essential clang lld git zip \
+            aarch64-linux-gnu-gcc arm-linux-gnueabi-gcc \
+            ccache bison flex libssl-dev bc cpio
 
-      - name: Clone kernel source
-        run: |
-          git clone --depth 1 https://github.com/liyafe1997/kernel_xiaomi_sm8250_mod.git "$KERNEL_DIR"
-          cd "$KERNEL_DIR"
-          git checkout android15-lineage22-mod
-
-      - name: Download proton-clang 20210522
-        run: |
-          mkdir -p "$HOME/proton-clang"
-          cd "$HOME/proton-clang"
-          curl -fL -o clang.zip https://github.com/kdrag0n/proton-clang/archive/refs/tags/${CLANG_VER}.zip
-          unzip -q clang.zip
-          TOOLCHAIN_PATH="$HOME/proton-clang/proton-clang-${CLANG_VER}/bin"
-          echo "TOOLCHAIN_PATH=$TOOLCHAIN_PATH" >> "$GITHUB_ENV"
-          echo "$TOOLCHAIN_PATH" >> "$GITHUB_PATH"
-
-      - name: Build Kernel
+      - name: Build MIUI Kernel
         run: |
           set -e
-          cd "$KERNEL_DIR"
-          export PATH="$TOOLCHAIN_PATH:$PATH"
+
+          TARGET_DEVICE="${{ github.event.inputs.device }}"
           GIT_COMMIT_ID=$(git rev-parse --short=8 HEAD)
-          DATE=$(date +%Y%m%d_%H%M%S)
-          dts_source=arch/arm64/boot/dts/vendor/qcom
+          DATE=$(date +'%Y%m%d_%H%M%S')
 
-          if [ "$KSU" = "ksu" ]; then
-            KSU_ENABLE=1
-            KSU_ZIP_STR=SukiSU-SUSFS
-          else
-            KSU_ENABLE=0
-            KSU_ZIP_STR=NoKernelSU
-          fi
-
-          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang \
+          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out \
+          CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
           CLANG_TRIPLE=aarch64-linux-gnu-"
 
-          BUILD_THREADS=-j$(nproc)
-          rm -rf anykernel out
-          git clone --depth 1 https://github.com/liyafe1997/AnyKernel3 -b kona anykernel
-
-          cat > anykernel/anykernel.sh <<'EOF'
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=0
-          do.cleanup=1
-          do.cleanuponabort=1
-          is_slot_device=auto
-          ramdisk_compression=auto
-          patch_vbmeta_flag=auto
-
-          device.name1=cmi
-          device.name2=umi
-          device.name3=lmi
-
-          anykernel3() {
-          ui_print " "
-          ui_print "= MIUI/HyperOS Only Kernel SM8250 ="
-          ui_print " "
-
-          if grep -qE "missi-|qssi-|hyperos" /system/build.prop 2>/dev/null; then
-            ui_print "✅ MIUI/HyperOS check passed"
-          else
-            ui_print "❌ Only for MIUI/HyperOS!"
+          # Check defconfig
+          if [ ! -f "arch/arm64/configs/${TARGET_DEVICE}_defconfig" ]; then
+            echo "Device not found: $TARGET_DEVICE"
+            ls arch/arm64/configs/*_defconfig
             exit 1
           fi
 
-          dump_boot
-          split_boot
-          unpack_ramdisk
+          # Clean
+          rm -rf out anykernel
 
-          if [ -f $home/kernels/Image ]; then
-            mv $home/kernels/Image $home/Image
-          fi
-          if [ -f $home/kernels/dtb ]; then
-            mv $home/kernels/dtb $home/dtb
-          fi
+          # Clone AnyKernel3
+          git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth=1 anykernel
 
-          repack_ramdisk
-          flash_boot
-          write_boot
+          # Modify localversion
+          local_version_str="-perf"
+          local_version_date_str="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-perf"
+          sed -i "s/${local_version_str}/${local_version_date_str}/g" arch/arm64/configs/${TARGET_DEVICE}_defconfig
 
-          ui_print " "
-          ui_print "✅ Kernel install success"
-          ui_print " "
-          }
-          EOF
+          # ==================== MIUI Build ====================
+          echo -e "\n===== Building MIUI Kernel ====="
 
-          lv_old='CONFIG_LOCALVERSION="-perf"'
-          lv_new="CONFIG_LOCALVERSION=\"-${DATE}-${GIT_COMMIT_ID}-MIUI省电版\""
-          
-          # 备份原defconfig
-          cp arch/arm64/configs/${DEVICE}_defconfig arch/arm64/configs/${DEVICE}_defconfig.bak
-          
-          # 确保defconfig中存在旧配置项
-          if ! grep -q "^$lv_old$" arch/arm64/configs/${DEVICE}_defconfig; then
-            echo "$lv_old" >> arch/arm64/configs/${DEVICE}_defconfig
-          fi
-          
-          sed -i "s|$lv_old|$lv_new|g" arch/arm64/configs/${DEVICE}_defconfig
+          dts_source=arch/arm64/boot/dts/vendor/qcom
+          cp -a "$dts_source" .dts.bak
 
-          # 改进的备份恢复逻辑
-          if [ -d "$dts_source" ]; then
-            cp -a "$dts_source" .dts.bak
-          fi
+          # Panel size patches
+          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j1s*
+          sed -i 's/<154>/<1537>/g' ${dts_source}/dsi-panel-j2*
+          sed -i 's/<155>/<1544>/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
+          sed -i 's/<155>/<1545>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
+          sed -i 's/<155>/<1546>/g' ${dts_source}/dsi-panel-k11a-38-08-0a-dsc-cmd.dtsi
+          sed -i 's/<155>/<1546>/g' ${dts_source}/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
+          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
+          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-k11a-38-08-0a-dsc-cmd.dtsi
+          sed -i 's/<70>/<695>/g' ${dts_source}/dsi-panel-l11r-38-08-0a-dsc-cmd.dtsi
+          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j1s*
+          sed -i 's/<71>/<710>/g' ${dts_source}/dsi-panel-j2*
 
-          make $MAKE_ARGS ${DEVICE}_defconfig
+          # SmartFPS & qsync
+          sed -i 's/\/\/ mi,mdss-dsi-pan-enable-smart-fps/mi,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
+          sed -i 's/\/\/ mi,mdss-dsi-smart-fps-max_framerate/mi,mdss-dsi-smart-fps-max_framerate/g' ${dts_source}/dsi-panel*
+          sed -i 's/\/\/ qcom,mdss-dsi-pan-enable-smart-fps/qcom,mdss-dsi-pan-enable-smart-fps/g' ${dts_source}/dsi-panel*
+          sed -i 's/qcom,mdss-dsi-qsync-min-refresh-rate/\/\/qcom,mdss-dsi-qsync-min-refresh-rate/g' ${dts_source}/dsi-panel*
 
-          if [ $KSU_ENABLE -eq 1 ]; then
-            # 先下载脚本，检查后再执行
-            SCRIPT_TEMP=$(mktemp)
-            curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" -o "$SCRIPT_TEMP"
-            chmod +x "$SCRIPT_TEMP"
-            bash "$SCRIPT_TEMP" f4863b20cc8dc0f8cc67418980f022e43014b598
-            rm -f "$SCRIPT_TEMP"
-            
-            scripts/config --file out/.config \
-              -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS_HAS_MAGIC_MOUNT \
-              -d KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT \
-              -e KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT \
-              -e KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT \
-              -e KSU_SUSFS_SUS_KSTAT -d KSU_SUSFS_SUS_OVERLAYFS \
-              -e KSU_SUSFS_TRY_UMOUNT \
-              -e KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT \
-              -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \
-              -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
-              -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-              -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU -e KPM
-          else
-            scripts/config --file out/.config -d KSU
-          fi
+          # Refresh rates
+          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-36-02-0c-dsc-video.dtsi
+          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-37-02-0a-dsc-video.dtsi
+          sed -i 's/120 90 60/120 90 60 50 30/g' ${dts_source}/dsi-panel-g7a-37-02-0b-dsc-video.dtsi
+          sed -i 's/144 120 90 60/144 120 90 60 50 48 30/g' ${dts_source}/dsi-panel-j3s-37-02-0a-dsc-video.dtsi
 
+          # Brightness configs
+          sed -i 's/\/\/39 00 00 00 00 00 03 51 03 FF/39 00 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j9-38-0a-0a-fhd-video.dtsi
+          sed -i 's/\/\/39 00 00 00 00 00 03 51 0D FF/39 00 00 00 00 00 03 51 0D FF/g' ${dts_source}/dsi-panel-j2-p2-1-38-0c-0a-dsc-cmd.dtsi
+          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j1s-42-02-0a-dsc-cmd.dtsi
+          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j1s-42-02-0a-mp-dsc-cmd.dtsi
+          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j2-mp-42-02-0b-dsc-cmd.dtsi
+          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j2-p2-1-42-02-0b-dsc-cmd.dtsi
+          sed -i 's/\/\/39 00 00 00 00 00 05 51 0F 8F 00 00/39 00 00 00 00 00 05 51 0F 8F 00 00/g' ${dts_source}/dsi-panel-j2s-mp-42-02-0a-dsc-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 00 00 03 51 00 00/39 01 00 00 00 00 03 51 00 00/g' ${dts_source}/dsi-panel-j2-38-0c-0a-dsc-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 00 00 03 51 07 FF/39 01 00 00 00 00 03 51 07 FF/g' ${dts_source}/dsi-panel-j1u-42-02-0b-dsc-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 00 00 03 51 0F FF/39 01 00 00 00 00 03 51 0F FF/g' ${dts_source}/dsi-panel-j1u-42-02-0b-dsc-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 00 00 05 51 07 FF 00 00/39 01 00 00 00 00 05 51 07 FF 00 00/g' ${dts_source}/dsi-panel-j1s-42-02-0a-dsc-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 01 00 03 51 03 FF/39 01 00 00 01 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11-38-08-0a-fhd-cmd.dtsi
+          sed -i 's/\/\/39 01 00 00 11 00 03 51 03 FF/39 01 00 00 11 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j2-p2-1-38-0c-0a-dsc-cmd.dtsi
+
+          # Make defconfig
+          make $MAKE_ARGS ${TARGET_DEVICE}_defconfig
+
+          # MIUI configs
           scripts/config --file out/.config \
             --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
-            -e XIAOMI_MIUI -e MIGT -e MIGT_ENERGY_MODEL -e MIHW -e MILLET \
-            -e PERF_HUMANTASK -e PACKAGE_RUNTIME_INFO -e BINDER_OPT \
-            -e PERF_CRITICAL_RT_TASK -e SF_BINDER -e MIUI_ZRAM_MEMORY_TRACKING \
-            -e MI_FRAGMENTATION -e PERF_HELPER -e BOOTUP_RECLAIM -e MI_RECLAIM -e RTMM \
-            -e CPU_IDLE_LPM -e CPU_IDLE_GOV_LPMUNIVERSAL \
-            -e CPU_FREQ_GOV_SCHEDUTIL \
-            -e DEVFREQ_GOV_POWERSAVE -e DEVFREQ_GOV_SIMPLE_ONDEMAND \
-            -e NO_HZ_FULL -e NO_HZ_IDLE -e RCU_NO_CPU_IDLE_GP \
-            -e F2FS_IDLE_FLUSH -e F2FS_FS_TRIM \
-            -e IOSCHED_MQ_DEADLINE \
-            -e ZRAM -e ZSWAP -e Z3FOLD \
-            --set-val DEFAULT_TCP_CONG_CONTROL "westwood" \
-            -e TCP_CONG_WESTWOOD -d TCP_CONG_BBR \
-            -d DEBUG_FS -d DEBUG_INFO -d DEBUG_KERNEL -d PM_DEBUG -d FAULT_INJECTION \
-            -d FTRACE -d DYNAMIC_FTRACE -d TRACING -d SCHEDSTATS \
+            -e PERF_CRITICAL_RT_TASK \
+            -e SF_BINDER \
             -e OVERLAY_FS \
-            -d LTO_CLANG -d LOCALVERSION_AUTO \
-            -e TASK_DELAY_ACCT
+            -d DEBUG_FS \
+            -e MIGT \
+            -e MIGT_ENERGY_MODEL \
+            -e MIHW \
+            -e PACKAGE_RUNTIME_INFO \
+            -e BINDER_OPT \
+            -e KPERFEVENTS \
+            -e MILLET \
+            -e PERF_HUMANTASK \
+            -d LTO_CLANG \
+            -d LOCALVERSION_AUTO \
+            -e XIAOMI_MIUI \
+            -d MI_MEMORY_SYSFS \
+            -e TASK_DELAY_ACCT \
+            -e MIUI_ZRAM_MEMORY_TRACKING \
+            -d CONFIG_MODULE_SIG_SHA512 \
+            -d CONFIG_MODULE_SIG_HASH \
+            -e MI_FRAGMENTION \
+            -e PERF_HELPER \
+            -e BOOTUP_RECLAIM \
+            -e MI_RECLAIM \
+            -e RTMM
 
-          make $MAKE_ARGS $BUILD_THREADS
+          # Build
+          make $MAKE_ARGS -j$(nproc)
 
-          # 改进的dtb合并逻辑
-          if find out/arch/arm64/boot/dts/vendor/qcom -name '*.dtb' 2>/dev/null | grep -q .; then
-            find out/arch/arm64/boot/dts/vendor/qcom -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
-          else
-            echo "警告: 未找到dtb文件"
-            touch out/arch/arm64/boot/dtb
-          fi
-
-          # 改进的恢复逻辑
-          if [ -d ".dts.bak" ]; then
-            if [ -d "$dts_source" ]; then
-              rm -rf "$dts_source"
-            fi
-            mv .dts.bak "$dts_source"
-          fi
-
-          if [ $KSU_ENABLE -eq 1 ]; then
-            cd out/arch/arm64/boot
-            if curl -fL -o patch_linux https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux; then
-              chmod +x patch_linux
-              ./patch_linux || echo "补丁应用可能失败，继续构建..."
-              if [ -f oImage ]; then
-                mv oImage Image
-              fi
-            else
-              echo "警告: 无法下载补丁文件"
-            fi
-            cd -
-          fi
-
-          mkdir -p anykernel/kernels
-          if [ -f out/arch/arm64/boot/Image ]; then
-            cp out/arch/arm64/boot/Image anykernel/kernels/
-          else
-            echo "错误: Image文件未找到!"
+          # Check image
+          if [ ! -f "out/arch/arm64/boot/Image" ]; then
+            echo "MIUI build failed!"
             exit 1
           fi
-          
-          if [ -s out/arch/arm64/boot/dtb ]; then
-            cp out/arch/arm64/boot/dtb anykernel/kernels/
-          else
-            echo "警告: DTB文件为空或不存在"
-            touch anykernel/kernels/dtb
-          fi
+
+          # Merge dtb
+          find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
+
+          # Restore dts
+          rm -rf "$dts_source"
+          mv .dts.bak "$dts_source"
+
+          # Pack AnyKernel3
+          rm -rf anykernel/kernels
+          mkdir -p anykernel/kernels
+          cp out/arch/arm64/boot/Image anykernel/kernels/
+          cp out/arch/arm64/boot/dtb anykernel/kernels/
 
           cd anykernel
-          ZIP_NAME=Kernel_MIUI_${DEVICE}_${KSU_ZIP_STR}_省电版_${DATE}_${GIT_COMMIT_ID}.zip
-          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "*.zip" -x "README*" -x "LICENSE*"
-          mv "$ZIP_NAME" "$KERNEL_DIR"/
+          ZIP_NAME=Kernel_MIUI_${TARGET_DEVICE}_NoKSU_${DATE}_${GIT_COMMIT_ID}.zip
+          zip -r9 "$ZIP_NAME" ./* -x .git .gitignore "*.zip"
+          mv "$ZIP_NAME" ../
           cd ..
 
-          # 恢复原defconfig
-          mv arch/arm64/configs/${DEVICE}_defconfig.bak arch/arm64/configs/${DEVICE}_defconfig
+          # Restore localversion
+          sed -i "s/${local_version_date_str}/${local_version_str}/g" arch/arm64/configs/${TARGET_DEVICE}_defconfig
 
-      - name: Upload Kernel
+          echo -e "\nBuild success!"
+          ls *.zip
+
+      - name: Upload MIUI Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-MIUI-${{ inputs.device }}-省电优化版
-          path: ${{ env.KERNEL_DIR }}/*.zip
-          retention-days: 30
+          name: MIUI-Kernel-${{ github.event.inputs.device }}
+          path: "*.zip"
