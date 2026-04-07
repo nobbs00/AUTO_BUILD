@@ -23,7 +23,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04-arm.04
     env:
       DEVICE: ${{ inputs.device }}
       KSU: ${{ inputs.ksu }}
@@ -253,7 +253,7 @@ jobs:
           mv arch/arm64/configs/${DEVICE}_defconfig.bak arch/arm64/configs/${DEVICE}_defconfig
 
       - name: Upload Kernel
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: Kernel-MIUI-${{ inputs.device }}-省电优化版
           path: ${{ env.KERNEL_DIR }}/*.zip
