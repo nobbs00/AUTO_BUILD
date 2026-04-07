@@ -73,9 +73,7 @@ jobs:
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-          CLANG_TRIPLE=a64-linux-gnu- \
-          KBUILD_BUILD_USER=kernel \
-          KBUILD_BUILD_HOST=github"
+          CLANG_TRIPLE=a64-linux-gnu-"
 
           export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
           mkdir -p "$CCACHE_DIR"
@@ -85,7 +83,7 @@ jobs:
           git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth 1 anykernel
 
           ###########################################################
-          # MIUI/HyperOS Only 验证脚本修复
+          # MIUI/HyperOS Only 验证脚本
           ###########################################################
           cat > anykernel/anykernel.sh <<'EOF'
           anykernel3() {
@@ -116,11 +114,11 @@ jobs:
           lv_new="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-省电优化"
           sed -i "s|$lv|$lv_new|g" arch/arm64/configs/${DEVICE}_defconfig
 
-          # DTS 备份
+          # DTS备份
           dts_source=arch/arm64/boot/dts/vendor/qcom
           cp -a "$dts_source" .dts.bak
 
-          # 编译 defconfig
+          # 生成defconfig
           make $MAKE_ARGS ${DEVICE}_defconfig
 
           # SukiSU
@@ -137,13 +135,13 @@ jobs:
               -e KSU_SUSFS_SPOOF_UNAME -e KSU_SUSFS_ENABLE_LOG \
               -e KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
               -e KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
-              -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SUS_SU -e KPM
+              -d KSU_SUSFS_OPEN_REDIRECT -d KSU_SUSFS_SU -e KPM
           else
             scripts/config --file out/.config -d KSU
           fi
 
           ###########################################################
-          # 稳定省电优化（无报错版）
+          # 省电稳定优化
           ###########################################################
           scripts/config --file out/.config \
             --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
@@ -194,11 +192,11 @@ jobs:
           mv "$ZIP_MIUI" "$KERNEL_DIR"/
           cd ..
 
-          # 恢复defconfig版本字段
+          # 恢复defconfig
           sed -i "s|$lv_new|$lv|g" arch/arm64/configs/${DEVICE}_defconfig
 
       - name: Upload MIUI Kernel
-        uses: actions/upload-artifact@4
+        uses: actions/upload-artifact@v4
         with:
           name: Kernel-MIUI-${{ inputs.device }}-省电优化版
           path: ${{ env.KERNEL_DIR }}/Kernel_MIUI_*.zip
