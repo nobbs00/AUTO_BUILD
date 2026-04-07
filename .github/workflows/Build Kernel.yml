@@ -73,45 +73,51 @@ jobs:
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-          CLANG_TRIPLE=aarch64-linux-gnu-"
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          KCFLAGS=-O2 -mllvm -inline-threshold=1500 -mllvm -simplifycfg-sink-common=false \
+          KBUILD_BUILD_USER=kernel \
+          KBUILD_BUILD_HOST=github"
 
           export CCACHE_DIR="$HOME/.cache/ccache_mikernel"
           mkdir -p "$CCACHE_DIR"
+          ccache -M 10G
 
           rm -rf anykernel out
           git clone https://github.com/liyafe1997/AnyKernel3 -b kona --depth 1 anykernel
 
           ###########################################################
-          # 关键：只允许 MIUI/HyperOS 刷入，AOSP 直接拒绝
+          # MIUI/HyperOS Only 验证
           ###########################################################
           cat > anykernel/anykernel.sh <<'EOF'
           anykernel3() {
           ui_print " "
           ui_print "= MIUI / HyperOS Only Kernel ="
+          ui_print "  骁龙865 / SM8250 省电优化版"
           ui_print " "
 
-          userflavor="$(file_getprop /system/build.prop ro.build.flavor)"
-          case "$userflavor" in
-              missi-*|qssi-*)
-                  ui_print "  -> MIUI/HyperOS 已检测"
-                  ;;
-              *)
-                  ui_print "  错误：仅支持 MIUI/HyperOS 系统！"
-                  ui_print "  此内核不可用于 AOSP 类第三方 ROM"
-                  exit 1
-                  ;;
-          esac
+          if grep -qE "missi-|qssi-|hyperos" /system/build.prop 2>/dev/null; then
+              ui_print "✅ MIUI/HyperOS 检测通过"
+          else
+              ui_print "❌ 仅支持 MIUI / HyperOS!"
+              ui_print "❌ 不可用于 AOSP/LineageOS 类ROM"
+              exit 1
+          fi
 
-          mv $home/kernels/Image $home/Image
+          if [ -f $home/kernels/Image ]; then
+              mv $home/kernels/Image $home/Image
+          fi
+          if [ -f $home/kernels/dtb ]; then
+              mv $home/kernels/dtb $home/dtb
+          fi
           }
           EOF
 
-          # 版本号修改
+          # 版本号
           lv="-perf"
-          lv_new="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-省电版"
+          lv_new="-$(date +%Y%m%d)-${GIT_COMMIT_ID}-省电优化"
           sed -i "s/$lv/$lv_new/g" arch/arm64/configs/${DEVICE}_defconfig
 
-          # DTS 面板适配（MIUI专属）
+          # DTS MIUI面板适配
           dts_source=arch/arm64/boot/dts/vendor/qcom
           cp -a "$dts_source" .dts.bak
 
@@ -133,10 +139,10 @@ jobs:
           sed -i 's/\/\/39 00 00 00 00 00 03 51 03 FF/39 00 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j9*
           sed -i 's/\/\/39 01 00 00 00 00 03 51 03 FF/39 01 00 00 00 00 03 51 03 FF/g' ${dts_source}/dsi-panel-j11*
 
-          # 生成 defconfig
+          # Defconfig
           make $MAKE_ARGS ${DEVICE}_defconfig
 
-          # KSU 配置
+          # SukiSU
           if [ $KSU_ENABLE -eq 1 ]; then
             curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" | bash -s f4863b20cc8dc0f8cc67418980f022e43014b598
             scripts/config --file out/.config \
@@ -155,11 +161,15 @@ jobs:
             scripts/config --file out/.config -d KSU
           fi
 
-          # ==================== MIUI 核心 + 省电优化 ====================
+          ###########################################################
+          # 核心优化：省电 + 流畅 + 稳定 + MIUI兼容
+          ###########################################################
           scripts/config --file out/.config \
             --set-str STATIC_USERMODEHELPER_PATH /system/bin/micd \
             -e PERF_CRITICAL_RT_TASK -e SF_BINDER -e OVERLAY_FS \
             -d DEBUG_FS -d DEBUG_INFO -d PM_DEBUG -d FAULT_INJECTION \
+            -d DEBUG_KERNEL -d FTRACE -d DYNAMIC_FTRACE -d TRACING \
+            -d SCHEDSTATS -d LATENCYTOP -d PM_SLEEP_DEBUG \
             -e MIGT -e MIGT_ENERGY_MODEL -e MIHW -e MILLET \
             -e XIAOMI_MIUI -e PERF_HUMANTASK \
             -e PACKAGE_RUNTIME_INFO -e BINDER_OPT \
@@ -171,20 +181,26 @@ jobs:
             -e CPU_FREQ_GOV_SCHEDUTIL \
             -e DEVFREQ_GOV_POWERSAVE \
             -e DEVFREQ_GOV_SIMPLE_ONDEMAND \
-            -e F2FS_IDLE_FLUSH \
-            -e F2FS_FS_TRIM
+            -e F2FS_IDLE_FLUSH -e F2FS_FS_TRIM \
+            -e IOSCHED_NOOP -e IOSCHED_ROW -e IOSCHED_CFQ \
+            -e ZRAM -e ZSWAP -e ZBUD -e Z3FOLD \
+            -e MQ_DEADLINE -e BFQ_QOS -e BFQ_CGROUP \
+            -d THERMAL_DEBUG -d THERMAL_NETLINK -d THERMAL_SYSFS_DEBUG \
+            -e CPU_FREQ_GOV_PERFORMANCE -e CPU_FREQ_GOV_ONDEMAND \
+            -e CPU_FREQ_GOV_CONSERVATIVE -e CPU_FREQ_GOV_POWERSAVE \
+            -e SCHED_WALT -d SCHED_DEBUG
 
-          # 编译（自动多核）
+          # 编译
           make $MAKE_ARGS -j$(nproc)
 
-          # 合并dtb
+          # DTB合并
           find out/arch/arm64/boot/dts -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
 
           # 恢复DTS
           rm -rf "$dts_source"
           mv .dts.bak "$dts_source"
 
-          # KSU补丁
+          # KSU patch
           if [ $KSU_ENABLE -eq 1 ]; then
             cd out/arch/arm64/boot
             wget -q https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
@@ -202,16 +218,16 @@ jobs:
 
           cd anykernel
           ZIP_MIUI=Kernel_MIUI_${DEVICE}_${KSU_ZIP_STR}_省电版_${DATE}_${GIT_COMMIT_ID}.zip
-          zip -r9 "$ZIP_MIUI" ./* -x '.git*' out/ '*.zip'
+          zip -r9 "$ZIP_MIUI" ./* -x '.git*' '*.zip'
           mv "$ZIP_MIUI" "$KERNEL_DIR"/
           cd ..
 
-          # 恢复版本字段
+          # 恢复版本
           sed -i "s/$lv_new/$lv/g" arch/arm64/configs/${DEVICE}_defconfig
 
       - name: Upload MIUI Kernel
         uses: actions/upload-artifact@v4
         with:
-          name: Kernel-MIUI-${{ inputs.device }}-省电版
+          name: Kernel-MIUI-${{ inputs.device }}-省电优化版
           path: ${{ env.KERNEL_DIR }}/Kernel_MIUI_*.zip
-          retention-days: 10
+          retention-days: 15
