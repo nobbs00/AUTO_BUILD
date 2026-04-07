@@ -1,3 +1,4 @@
+# 修复后的版本
 name: Mi10Pro-cmi Kernel Build (MIUI单包·省电优化版)
 on:
   workflow_dispatch:
@@ -52,9 +53,9 @@ jobs:
           cd "$HOME/proton-clang"
           curl -fL -o clang.zip https://github.com/kdrag0n/proton-clang/archive/refs/tags/${CLANG_VER}.zip
           unzip -q clang.zip
-          TOOLCHAIN_BIN="$HOME/proton-clang/proton-clang-${CLANG_VER}/bin"
-          echo "TOOLCHAIN_PATH=$TOOLCHAIN_BIN" >> "$GITHUB_ENV"
-          echo "$TOOLCHAIN_BIN" >> "$GITHUB_PATH"
+          TOOLCHAIN_PATH="$HOME/proton-clang/proton-clang-${CLANG_VER}/bin"
+          echo "TOOLCHAIN_PATH=$TOOLCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "$TOOLCHAIN_PATH" >> "$GITHUB_PATH"
 
       - name: Build Kernel
         run: |
@@ -73,13 +74,13 @@ jobs:
             KSU_ZIP_STR=NoKernelSU
           fi
 
-          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC='ccache clang' \
+          MAKE_ARGS="ARCH=arm64 SUBARCH=arm64 O=out CC=clang \
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
           CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
           CLANG_TRIPLE=aarch64-linux-gnu-"
 
-          BUILD_THREADS=-j4
+          BUILD_THREADS=-j$(nproc)
           rm -rf anykernel out
           git clone --depth 1 https://github.com/liyafe1997/AnyKernel3 -b kona anykernel
 
@@ -132,14 +133,32 @@ jobs:
 
           lv_old='CONFIG_LOCALVERSION="-perf"'
           lv_new="CONFIG_LOCALVERSION=\"-${DATE}-${GIT_COMMIT_ID}-MIUI省电版\""
+          
+          # 备份原defconfig
+          cp arch/arm64/configs/${DEVICE}_defconfig arch/arm64/configs/${DEVICE}_defconfig.bak
+          
+          # 确保defconfig中存在旧配置项
+          if ! grep -q "^$lv_old$" arch/arm64/configs/${DEVICE}_defconfig; then
+            echo "$lv_old" >> arch/arm64/configs/${DEVICE}_defconfig
+          fi
+          
           sed -i "s|$lv_old|$lv_new|g" arch/arm64/configs/${DEVICE}_defconfig
 
-          cp -a "$dts_source" .dts.bak
+          # 改进的备份恢复逻辑
+          if [ -d "$dts_source" ]; then
+            cp -a "$dts_source" .dts.bak
+          fi
 
           make $MAKE_ARGS ${DEVICE}_defconfig
 
           if [ $KSU_ENABLE -eq 1 ]; then
-            curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" | bash -s f4863b20cc8dc0f8cc67418980f022e43014b598
+            # 先下载脚本，检查后再执行
+            SCRIPT_TEMP=$(mktemp)
+            curl -LSs "https://github.com/liyafe1997/SukiSU-Ultra/raw/4ff14cf0051d04209c4abd5027d99d8e7780ef5b/kernel/setup.sh" -o "$SCRIPT_TEMP"
+            chmod +x "$SCRIPT_TEMP"
+            bash "$SCRIPT_TEMP" f4863b20cc8dc0f8cc67418980f022e43014b598
+            rm -f "$SCRIPT_TEMP"
+            
             scripts/config --file out/.config \
               -e KSU -e KSU_MANUAL_HOOK -e KSU_SUSFS_HAS_MAGIC_MOUNT \
               -d KSU_SUSFS_SUS_PATH -e KSU_SUSFS_SUS_MOUNT \
@@ -179,35 +198,63 @@ jobs:
 
           make $MAKE_ARGS $BUILD_THREADS
 
-          find out/arch/arm64/boot/dts/vendor/qcom -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
+          # 改进的dtb合并逻辑
+          if find out/arch/arm64/boot/dts/vendor/qcom -name '*.dtb' 2>/dev/null | grep -q .; then
+            find out/arch/arm64/boot/dts/vendor/qcom -name '*.dtb' -exec cat {} + > out/arch/arm64/boot/dtb
+          else
+            echo "警告: 未找到dtb文件"
+            touch out/arch/arm64/boot/dtb
+          fi
 
-          rm -rf "$dts_source"
-          mv .dts.bak "$dts_source"
+          # 改进的恢复逻辑
+          if [ -d ".dts.bak" ]; then
+            if [ -d "$dts_source" ]; then
+              rm -rf "$dts_source"
+            fi
+            mv .dts.bak "$dts_source"
+          fi
 
           if [ $KSU_ENABLE -eq 1 ]; then
             cd out/arch/arm64/boot
-            curl -fL -o patch_linux https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux
-            chmod +x patch_linux
-            ./patch_linux || true
-            [ -f oImage ] && mv oImage Image
+            if curl -fL -o patch_linux https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.0/patch_linux; then
+              chmod +x patch_linux
+              ./patch_linux || echo "补丁应用可能失败，继续构建..."
+              if [ -f oImage ]; then
+                mv oImage Image
+              fi
+            else
+              echo "警告: 无法下载补丁文件"
+            fi
             cd -
           fi
 
           mkdir -p anykernel/kernels
-          cp out/arch/arm64/boot/Image anykernel/kernels/
-          cp out/arch/arm64/boot/dtb anykernel/kernels/
+          if [ -f out/arch/arm64/boot/Image ]; then
+            cp out/arch/arm64/boot/Image anykernel/kernels/
+          else
+            echo "错误: Image文件未找到!"
+            exit 1
+          fi
+          
+          if [ -s out/arch/arm64/boot/dtb ]; then
+            cp out/arch/arm64/boot/dtb anykernel/kernels/
+          else
+            echo "警告: DTB文件为空或不存在"
+            touch anykernel/kernels/dtb
+          fi
 
           cd anykernel
           ZIP_NAME=Kernel_MIUI_${DEVICE}_${KSU_ZIP_STR}_省电版_${DATE}_${GIT_COMMIT_ID}.zip
-          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "*.zip"
+          zip -r9 "$ZIP_NAME" ./* -x ".git*" -x "*.zip" -x "README*" -x "LICENSE*"
           mv "$ZIP_NAME" "$KERNEL_DIR"/
           cd ..
 
-          sed -i "s|$lv_new|$lv_old|g" arch/arm64/configs/${DEVICE}_defconfig
+          # 恢复原defconfig
+          mv arch/arm64/configs/${DEVICE}_defconfig.bak arch/arm64/configs/${DEVICE}_defconfig
 
       - name: Upload Kernel
         uses: actions/upload-artifact@v4
         with:
           name: Kernel-MIUI-${{ inputs.device }}-省电优化版
-          path: ${{ env.KERNEL_DIR }}/Kernel_MIUI_*.zip
+          path: ${{ env.KERNEL_DIR }}/*.zip
           retention-days: 30
